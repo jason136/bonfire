@@ -10,6 +10,14 @@ candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.
 candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.3.0" }
 candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.3.0" }
 
-anyhow = "1.0"
+actix-web = { version = "4.3" }
+tokio = "1"
+env_logger = "0.10"
+
 tokenizers = "0.14"
 hf-hub = "0.3"
+anyhow = "1.0"
+rayon = "1.8"
+once_cell = "1.18"
+rand = "0.8"
+dotenvy = "0.15"
