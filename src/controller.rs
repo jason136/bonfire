@@ -1,9 +1,8 @@
-use actix_web::{
-    get,
-    web::Path,
-    HttpResponse, Responder,
-};
+use actix_web::{get, web::{Path, Data}, HttpResponse, Responder, post};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rand::Rng;
+
+use crate::{broadcast::Broadcaster, AppState};
 
 #[get("/hello/{id}")]
 pub async fn hello_world(path: Path<i32>) -> impl Responder {
@@ -31,4 +30,18 @@ pub async fn mega() -> impl Responder {
     let random_string: String = random_bytes.par_iter().map(|&byte| byte as char).collect();
 
     HttpResponse::Ok().body(random_string)
+}
+
+#[get("/events")]
+async fn event_stream(broadcaster: Data<Broadcaster>) -> impl Responder {
+    broadcaster.new_client().await
+}
+
+#[post("/broadcast/{msg}")]
+async fn broadcast_msg(
+    state: Data<AppState>,
+    msg: Path<String>,
+) -> impl Responder {
+    state.broadcaster.broadcast(&msg).await;
+    HttpResponse::Ok().body("msg sent")
 }

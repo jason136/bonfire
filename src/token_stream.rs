@@ -1,5 +1,3 @@
-// This is a wrapper around a tokenizer to ensure that tokens can be returned to the user in a
-// streaming way rather than having to wait for the full decoding.
 pub struct TokenOutputStream {
     tokenizer: tokenizers::Tokenizer,
     tokens: Vec<u32>,
@@ -17,7 +15,7 @@ impl TokenOutputStream {
         }
     }
 
-    pub fn into_inner(self) -> tokenizers::Tokenizer {
+    pub fn _into_inner(self) -> tokenizers::Tokenizer {
         self.tokenizer
     }
 
@@ -64,7 +62,7 @@ impl TokenOutputStream {
         }
     }
 
-    pub fn decode_all(&self) -> anyhow::Result<String> {
+    pub fn _decode_all(&self) -> anyhow::Result<String> {
         self.decode(&self.tokens)
     }
 
