@@ -8,6 +8,8 @@ use candle_transformers::generation::LogitsProcessor;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use tokenizers::Tokenizer;
 use rand::Rng;
+use tokio::sync::mpsc::Sender;
+use serde::{Deserialize, Serialize};
 
 use crate::token_stream::TokenOutputStream;
 use crate::utils::device;
@@ -17,6 +19,7 @@ enum Model {
     QMistral(QMistral),
 }
 
+#[derive(Debug, Clone)]
 pub struct TextGenerationArgs {
     pub cpu: bool,
     pub tracing: bool,
@@ -31,6 +34,21 @@ pub struct TextGenerationArgs {
     pub quantized: bool,
     pub repeat_penalty: f32,
     pub repeat_last_n: usize,
+}
+
+pub struct TextGeneration {
+    model: Model,
+    device: Device,
+    tokenizer: TokenOutputStream,
+    logits_processor: LogitsProcessor,
+    repeat_penalty: f32,
+    repeat_last_n: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextGenerationPrompt {
+    pub prompt: String,
+    pub sample_len: u32,
 }
 
 impl Default for TextGenerationArgs {
@@ -53,24 +71,16 @@ impl Default for TextGenerationArgs {
     }
 }
 
-pub struct TextGeneration {
-    model: Model,
-    device: Device,
-    tokenizer: TokenOutputStream,
-    logits_processor: LogitsProcessor,
-    repeat_penalty: f32,
-    repeat_last_n: usize,
-}
-
 impl Default for TextGeneration {
     fn default() -> Self {
         let args = TextGenerationArgs::default();
-        Self::new(args).unwrap()
+        Self::new(&args).unwrap()
     }
 }
 
 impl TextGeneration {
-    pub fn new(args: TextGenerationArgs) -> anyhow::Result<Self> {
+    /// creates a new instance of an LLM
+    pub fn new(args: &TextGenerationArgs) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -88,15 +98,15 @@ impl TextGeneration {
         let start = std::time::Instant::now();
         let api = Api::new()?;
         let repo = api.repo(Repo::with_revision(
-            args.model_id,
+            args.model_id.clone(),
             RepoType::Model,
-            args.revision,
+            args.revision.clone(),
         ));
-        let tokenizer_filename = match args.tokenizer_file {
+        let tokenizer_filename = match &args.tokenizer_file {
             Some(file) => std::path::PathBuf::from(file),
             None => repo.get("tokenizer.json")?,
         };
-        let filenames = match args.weight_files {
+        let filenames = match &args.weight_files {
             Some(files) => files
                 .split(',')
                 .map(std::path::PathBuf::from)
@@ -147,6 +157,7 @@ impl TextGeneration {
         })
     }
 
+    /// preloads the model files into the cache
     pub fn preload_models(args: TextGenerationArgs) -> anyhow::Result<()> {
         let start: std::time::Instant = std::time::Instant::now();
         let api = Api::new()?;
@@ -170,7 +181,8 @@ impl TextGeneration {
         Ok(())
     }
 
-    pub fn run(&mut self, prompt: &str, sample_len: usize) -> anyhow::Result<()> {
+    /// prompts an already loaded LLM and streams output mpsc Sender
+    pub async fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()> {
         self.tokenizer.clear();
 
         let mut tokens = self
@@ -215,13 +227,13 @@ impl TextGeneration {
                 break;
             }
             if let Some(t) = self.tokenizer.next_token(next_token)? {
-                print!("{t}");
+                sender.send(t).await.unwrap();
             }
         }
 
         let gen_time = start_gen.elapsed();
         if let Some(rest) = self.tokenizer.decode_rest().map_err(anyhow::Error::msg)? {
-            print!("{rest}");
+            sender.send(rest).await.unwrap();
         }
 
         println!(

@@ -1,19 +1,19 @@
-use actix_web::{get, web::{Path, Data}, HttpResponse, Responder, post};
+use actix_web::{get, web::{Path, Data, Json}, HttpResponse, Responder, post};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rand::Rng;
 
-use crate::{broadcast::Broadcaster, AppState};
+use crate::{streaming::StreamingClient, AppState, error::{Response, self}, text_generation::{TextGenerationArgs, TextGenerationPrompt}, extractors::UserIp};
 
 #[get("/hello/{id}")]
-pub async fn hello_world(path: Path<i32>) -> impl Responder {
+pub async fn hello_world(path: Path<i32>) -> Response {
     let id: i32 = path.into_inner();
 
-    HttpResponse::Ok().body(format!("hello world v2: {id}"))
+    Ok(HttpResponse::Ok().body(format!("hello world v2: {id}")))
 }
 
 #[get("/version")]
-pub async fn version() -> impl Responder {
-    HttpResponse::Ok().body(env!("CARGO_PKG_VERSION"))
+pub async fn version() -> Response {
+    Ok(HttpResponse::Ok().body(env!("CARGO_PKG_VERSION")))
 }
 
 #[get("/mb")]
@@ -32,16 +32,24 @@ pub async fn mega() -> impl Responder {
     HttpResponse::Ok().body(random_string)
 }
 
-#[get("/events")]
-async fn event_stream(broadcaster: Data<Broadcaster>) -> impl Responder {
-    broadcaster.new_client().await
+#[get("/connect")]
+async fn connect(user_ip: UserIp, state: Data<AppState>) -> Response {
+    let client = StreamingClient::new(TextGenerationArgs::default()).await?;
+    state.streaming_controller.clients.lock().await.insert(user_ip.0, client);
+
+    Ok(HttpResponse::Ok().body("Firing up the model..."))
 }
 
-#[post("/broadcast/{msg}")]
-async fn broadcast_msg(
+#[post("/prompt")]
+async fn prompt(
+    user_ip: UserIp,
     state: Data<AppState>,
-    msg: Path<String>,
-) -> impl Responder {
-    state.broadcaster.broadcast(&msg).await;
-    HttpResponse::Ok().body("msg sent")
+    body: Json<TextGenerationPrompt>,
+) -> Response {
+
+    let mut clients = state.streaming_controller.clients.lock().await;
+    let client = clients.get_mut(&user_ip.0).ok_or(error::Error::ClientTimedOut)?;
+    
+    client.prompt(&body.prompt, body.sample_len).await?;
+    Ok(HttpResponse::Ok().body("Done Prompting!"))
 }
