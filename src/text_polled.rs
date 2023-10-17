@@ -4,9 +4,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crossbeam::channel::{bounded, Sender, Receiver};
 use futures::lock::Mutex;
 use tokio::{
-    sync::mpsc::{channel, Receiver, Sender},
     task,
     time::interval,
 };
@@ -58,55 +58,50 @@ impl TextPolledController {
     }
 
     async fn remove_expired_messages(messages: TextPolledMessages) {
-        let mut messages_lock = messages.lock().await;
-
-        println!("items before cleaning: {}", messages_lock.len());
-
-        messages_lock.retain(|_, message| {
+        messages.lock().await.retain(|_, message| {
             if let Some(message) = message {
                 message.generated_at.elapsed().unwrap().as_secs() < 60 * 10
             } else {
                 true
             }
         });
-
-        println!("items after cleaning: {}", messages_lock.len());
-        println!("messages: {:?}", *messages_lock);
     }
 
     pub async fn prompt(&self, id: Uuid, prompt: String, sample_len: u32) -> error::Result<()> {
-        self.messages.lock().await.insert(id, None);
-
         let messages_clone = self.messages.clone();
+
+        let (sync_tx, sync_rx): (Sender<String>, Receiver<String>) = bounded(sample_len as usize);
+        
+        let handle = task::spawn_blocking(move || {
+            TextGeneration::default().run(&prompt, sample_len, sync_tx).unwrap();
+            println!("done generating");
+        });
+
         task::spawn(async move {
-            let (tx, mut rx): (Sender<String>, Receiver<String>) = channel(sample_len as usize);
+            messages_clone.lock().await.insert(id, None);
+            handle.await.unwrap();
+            
+            let text = sync_rx.try_iter().collect();
 
-            TextGeneration::default()
-                .run(&prompt, sample_len, tx)
-                .await
-                .unwrap();
-
-            let mut text = String::new();
-            while let Some(token) = rx.recv().await {
-                text.push_str(&token);
-            }
-
+            println!("text: {:?}", text);
+            
             let generated_message = PolledMessage {
                 text,
                 generated_at: SystemTime::now(),
             };
 
-            println!("messages: {:?}", messages_clone.lock().await);
-            println!("id: {:?}", id);
             *messages_clone.lock().await.get_mut(&id).unwrap() = Some(generated_message);
+            println!("id: {:?}", id);
         });
 
         Ok(())
     }
 
     pub async fn get_message(&self, id: &Uuid) -> PolledMessageState {
-        match self.messages.lock().await.remove(id) {
-            Some(Some(message)) => PolledMessageState::Available(message.text.clone()),
+        match self.messages.lock().await.get(id) {
+            Some(Some(message)) => {
+                PolledMessageState::Available(message.text.clone())
+            },
             Some(None) => PolledMessageState::Generating,
             None => PolledMessageState::Missing,
         }

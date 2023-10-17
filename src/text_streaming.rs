@@ -1,8 +1,8 @@
 use actix_web_lab::sse;
+use crossbeam::channel::{Sender, Receiver, unbounded};
 use futures::{future::join_all, lock::Mutex};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
-    sync::mpsc::{Receiver, Sender},
     task,
     time::interval,
 };
@@ -26,7 +26,7 @@ pub struct StreamingClient {
     pipe_task: Arc<task::JoinHandle<()>>,
     message_history: Arc<Mutex<Vec<String>>>,
     model_args: TextGenerationArgs,
-    model: Arc<Mutex<TextGeneration>>,
+    model: Arc<parking_lot::Mutex<TextGeneration>>,
 }
 
 impl Default for TextStreamingController {
@@ -45,7 +45,7 @@ impl Default for TextStreamingController {
 impl TextStreamingController {
     /// pings clients every 10 seconds to see if they are alive and remove them from the client list if not.
     fn spawn_ping(clients: TextStreamingClients) {
-        task::spawn(async move {
+        actix_web::rt::spawn(async move {
             let mut interval = interval(Duration::from_secs(10));
 
             loop {
@@ -57,9 +57,9 @@ impl TextStreamingController {
 
     /// removes all non-responsive clients from client list
     async fn remove_stale_clients(clients: TextStreamingClients) {
-        let mut clients_lock = clients.lock().await;
+        let clients_clone = clients.lock().await.clone();
 
-        let futures = clients_lock.iter().map(|(id, client)| async {
+        let futures = clients_clone.iter().map(|(id, client)| async {
             if client
                 .sse_sender
                 .send(sse::Event::Comment("ping".into()))
@@ -75,7 +75,7 @@ impl TextStreamingController {
 
         let ok_client_ids: Vec<Uuid> = join_all(futures).await.into_iter().flatten().collect();
 
-        clients_lock.retain(|k, _| ok_client_ids.contains(k));
+        clients.lock().await.retain(|k, _| ok_client_ids.contains(k));
     }
 }
 
@@ -84,26 +84,25 @@ impl StreamingClient {
         let (tx, _) = sse::channel(10);
         tx.send(sse::Data::new("connected")).await?;
 
-        let message_history: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let (stream_input, mut stream_output): (Sender<String>, Receiver<String>) =
-            tokio::sync::mpsc::channel(10);
+        let message_history = Arc::new(Mutex::new(Vec::new()));
+        let (sync_tx, sync_rx): (Sender<String>,  Receiver<String>) = unbounded();
 
         let message_history_clone = message_history.clone();
         let tx_clone = tx.clone();
         let pipe_task = Arc::new({
             task::spawn(async move {
-                while let Some(msg) = stream_output.recv().await {
+                while let Ok(msg) = sync_rx.recv() {
                     message_history_clone.lock().await.push(msg.clone());
                     tx_clone.send(sse::Data::new(msg)).await.unwrap();
                 }
             })
         });
 
-        let model = Arc::new(Mutex::new(TextGeneration::new(&model_args)?));
+        let model = Arc::new(parking_lot::Mutex::new(TextGeneration::new(&model_args)?));
 
         Ok(StreamingClient {
             sse_sender: tx.clone(),
-            stream_input,
+            stream_input: sync_tx,
             pipe_task,
             message_history,
             model_args,
@@ -113,7 +112,7 @@ impl StreamingClient {
 
     /// refresh model, needs to be run after every prompt
     pub async fn refresh_model(&mut self) -> error::Result<()> {
-        self.model = Arc::new(Mutex::new(TextGeneration::new(&self.model_args)?));
+        self.model = Arc::new(parking_lot::Mutex::new(TextGeneration::new(&self.model_args)?));
         Ok(())
     }
 
@@ -121,12 +120,7 @@ impl StreamingClient {
     pub async fn prompt(&mut self, prompt: &str, sample_len: u32) -> error::Result<()> {
         let full_prompt = self.message_history.lock().await.concat() + " " + prompt;
 
-        let sender = self.stream_input.clone();
-        self.model
-            .lock()
-            .await
-            .run(&full_prompt, sample_len, sender)
-            .await?;
+        self.model.lock().run(&full_prompt, sample_len, self.stream_input.clone())?;
 
         self.refresh_model().await
     }

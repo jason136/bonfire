@@ -1,16 +1,14 @@
 use candle_transformers::models::mistral::{Config, Model as Mistral};
 use candle_transformers::models::quantized_mistral::Model as QMistral;
-
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 
+use crossbeam::channel::Sender;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
-use tokio::sync::mpsc::Sender;
-
 use crate::token_stream::TokenOutputStream;
 use crate::utils::device;
 
@@ -65,7 +63,7 @@ impl Default for TextGenerationArgs {
             tokenizer_file: None,
             weight_files: None,
             quantized: true,
-            repeat_penalty: 1.1,
+            repeat_penalty: 1.2,
             repeat_last_n: 64,
         }
     }
@@ -182,7 +180,7 @@ impl TextGeneration {
     }
 
     /// prompts an already loaded LLM and streams output mpsc Sender
-    pub async fn run(
+    pub fn run(
         &mut self,
         prompt: &str,
         sample_len: u32,
@@ -232,13 +230,13 @@ impl TextGeneration {
                 break;
             }
             if let Some(t) = self.tokenizer.next_token(next_token)? {
-                sender.send(t).await.unwrap();
+                sender.send(t).unwrap();
             }
         }
 
         let gen_time = start_gen.elapsed();
         if let Some(rest) = self.tokenizer.decode_rest().map_err(anyhow::Error::msg)? {
-            sender.send(rest).await.unwrap();
+            sender.send(rest).unwrap();
         }
 
         println!(
@@ -248,7 +246,3 @@ impl TextGeneration {
         Ok(())
     }
 }
-
-// https://github.com/huggingface/candle/blob/main/candle-examples/examples/mistral/main.rs
-// https://github.com/huggingface/candle/tree/59ab6d7832600083a1519aa0511e9c7c832ae01c/candle-examples/examples/mistral
-// https://docs.rs/hf-hub/0.3.2/hf_hub/api/sync/struct.ApiRepo.html#method.get

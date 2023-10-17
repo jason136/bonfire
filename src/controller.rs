@@ -3,7 +3,6 @@ use actix_web::{
     web::{Data, Json, Path},
     HttpResponse,
 };
-use tokio::task;
 use uuid::Uuid;
 
 use crate::{
@@ -55,7 +54,7 @@ pub async fn prompt_streaming(
         return Ok(HttpResponse::BadRequest().body("Client Not Found"));
     }
 
-    task::spawn(async move {
+    actix_web::rt::spawn(async move {
         let mut clients = state_cloned.text_streaming_controller.clients.lock().await;
         if let Some(client) = clients
             .get_mut(&user_id) {
@@ -70,13 +69,11 @@ pub async fn prompt_streaming(
 pub async fn prompt_blob(state: Data<AppState>, body: Json<TextGenerationPrompt>) -> Response {
     let id = Uuid::new_v4();
 
-    task::spawn(async move {
-        state
-            .text_blob_controller
-            .prompt(id, body.prompt.clone(), body.sample_len)
-            .await
-            .unwrap();
-    });
+    state
+        .text_blob_controller
+        .prompt(id, body.prompt.clone(), body.sample_len)
+        .await
+        .unwrap();
 
     Ok(HttpResponse::Ok().body(id.to_string()))
 }
