@@ -1,14 +1,23 @@
-use actix_web::{get, web::{Path, Data, Json}, HttpResponse, Responder, post};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use rand::Rng;
+use actix_web::{
+    get, post,
+    web::{Data, Json, Path},
+    HttpResponse,
+};
+use tokio::task;
+use uuid::Uuid;
 
-use crate::{streaming::StreamingClient, AppState, error::{Response, self}, text_generation::{TextGenerationArgs, TextGenerationPrompt}, extractors::UserIp};
+use crate::{
+    error::Response,
+    text_generation::{TextGenerationArgs, TextGenerationPrompt},
+    text_streaming::StreamingClient,
+    AppState, text_polled::PolledMessageState,
+};
 
 #[get("/hello/{id}")]
 pub async fn hello_world(path: Path<i32>) -> Response {
     let id: i32 = path.into_inner();
 
-    Ok(HttpResponse::Ok().body(format!("hello world v2: {id}")))
+    Ok(HttpResponse::Ok().body(format!("hello world: {id}")))
 }
 
 #[get("/version")]
@@ -16,40 +25,72 @@ pub async fn version() -> Response {
     Ok(HttpResponse::Ok().body(env!("CARGO_PKG_VERSION")))
 }
 
-#[get("/mb")]
-pub async fn mega() -> impl Responder {
-    const DESIRED_SIZE: usize = 5_000_000;
-    let mut random_bytes = Vec::with_capacity(DESIRED_SIZE);
-    let mut rng = rand::thread_rng();
-
-    while random_bytes.len() < DESIRED_SIZE {
-        let random_byte: u8 = rng.gen();
-        random_bytes.push(random_byte);
-    }
-
-    let random_string: String = random_bytes.par_iter().map(|&byte| byte as char).collect();
-
-    HttpResponse::Ok().body(random_string)
-}
-
-#[get("/connect")]
-async fn connect(user_ip: UserIp, state: Data<AppState>) -> Response {
+#[get("/new_streaming")]
+pub async fn new_streaming(state: Data<AppState>) -> Response {
     let client = StreamingClient::new(TextGenerationArgs::default()).await?;
-    state.streaming_controller.clients.lock().await.insert(user_ip.0, client);
+    let user_id = Uuid::new_v4();
+    state
+        .text_streaming_controller
+        .clients
+        .lock()
+        .await
+        .insert(user_id, client);
 
-    Ok(HttpResponse::Ok().body("Firing up the model..."))
+    Ok(HttpResponse::Ok().body(user_id.to_string()))
 }
 
-#[post("/prompt")]
-async fn prompt(
-    user_ip: UserIp,
+#[post("/prompt_streaming/{id}")]
+pub async fn prompt_streaming(
+    id: Path<String>,
     state: Data<AppState>,
     body: Json<TextGenerationPrompt>,
 ) -> Response {
+    let user_id: Uuid = match id.into_inner().parse() {
+        Ok(id) => id,
+        Err(_) => return Ok(HttpResponse::BadRequest().body("Invalid Id")),
+    };
 
-    let mut clients = state.streaming_controller.clients.lock().await;
-    let client = clients.get_mut(&user_ip.0).ok_or(error::Error::ClientTimedOut)?;
-    
-    client.prompt(&body.prompt, body.sample_len).await?;
-    Ok(HttpResponse::Ok().body("Done Prompting!"))
+    let state_cloned = state.clone();
+    if !state.text_streaming_controller.clients.lock().await.contains_key(&user_id) {
+        return Ok(HttpResponse::BadRequest().body("Client Not Found"));
+    }
+
+    task::spawn(async move {
+        let mut clients = state_cloned.text_streaming_controller.clients.lock().await;
+        if let Some(client) = clients
+            .get_mut(&user_id) {
+                client.prompt(&body.prompt, body.sample_len).await.unwrap();
+            }
+    });
+
+    Ok(HttpResponse::Ok().body("Prompting Begun..."))
+}
+
+#[post("/prompt_blob")]
+pub async fn prompt_blob(state: Data<AppState>, body: Json<TextGenerationPrompt>) -> Response {
+    let id = Uuid::new_v4();
+
+    task::spawn(async move {
+        state
+            .text_blob_controller
+            .prompt(id, body.prompt.clone(), body.sample_len)
+            .await
+            .unwrap();
+    });
+
+    Ok(HttpResponse::Ok().body(id.to_string()))
+}
+
+#[get("/get_blob/{id}")]
+pub async fn get_blob(id: Path<String>, state: Data<AppState>) -> Response {
+    match id.into_inner().parse() {
+        Ok(message_id) => {
+            match state.text_blob_controller.get_message(&message_id).await {
+                PolledMessageState::Available(message) => Ok(HttpResponse::Ok().body(message)),
+                PolledMessageState::Generating => Ok(HttpResponse::Ok().body("Generating")),
+                PolledMessageState::Missing => Ok(HttpResponse::BadRequest().body("Message not found")),
+            }
+        },
+        Err(_) => Ok(HttpResponse::BadRequest().body("Invalid Id")),
+    }
 }

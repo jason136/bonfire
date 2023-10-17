@@ -1,3 +1,5 @@
+[![Bonfire](https://github.com/jason136/bonfire/actions/workflows/bonfire.yml/badge.svg)](https://github.com/jason136/bonfire/actions/workflows/bonfire.yml)
+
 # Bonfire
 Run an open-source generative AI model as a fast, reliable, and customizable rust backend API. \
 Powered by Huggingface's Candle crate and Actix Web.

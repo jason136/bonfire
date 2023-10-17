@@ -1,13 +1,15 @@
-use std::fmt::{Display, Formatter, self};
+use std::fmt::{self, Display, Formatter};
 
-use actix_web::{ResponseError, HttpResponse, http::{header::ContentType, StatusCode}};
+use actix_web::{
+    http::{header::ContentType, StatusCode},
+    HttpResponse, ResponseError,
+};
 use thiserror::Error;
 
 // general error type for the application.
 #[derive(Error, Debug)]
 pub enum Error {
     General(#[from] anyhow::Error),
-    ClientTimedOut,
     Sse(#[from] actix_web_lab::sse::SendError),
     StdIO(#[from] std::io::Error),
 }
@@ -16,7 +18,6 @@ impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Error::General(e) => write!(f, "General Error: {}", e),
-            Error::ClientTimedOut => write!(f, "Client Timed Out"),
             Error::Sse(e) => write!(f, "Sse Error: {}", e),
             Error::StdIO(e) => write!(f, "StdIO Error: {}", e),
         }

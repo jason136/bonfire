@@ -6,10 +6,10 @@ use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use tokenizers::Tokenizer;
 use rand::Rng;
-use tokio::sync::mpsc::Sender;
 use serde::{Deserialize, Serialize};
+use tokenizers::Tokenizer;
+use tokio::sync::mpsc::Sender;
 
 use crate::token_stream::TokenOutputStream;
 use crate::utils::device;
@@ -182,7 +182,12 @@ impl TextGeneration {
     }
 
     /// prompts an already loaded LLM and streams output mpsc Sender
-    pub async fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()> {
+    pub async fn run(
+        &mut self,
+        prompt: &str,
+        sample_len: u32,
+        sender: Sender<String>,
+    ) -> anyhow::Result<()> {
         self.tokenizer.clear();
 
         let mut tokens = self

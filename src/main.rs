@@ -1,20 +1,23 @@
 use std::sync::Arc;
 
-use actix_web::{middleware::Logger, App, HttpServer, web::Data};
+use actix_web::{middleware::Logger, web::Data, App, HttpServer};
+use text_polled::TextPolledController;
 
+mod controller;
 mod error;
 mod extractors;
-mod controller;
-mod streaming;
+mod text_polled;
 mod text_generation;
+mod text_streaming;
 mod token_stream;
 mod utils;
 
-use crate::{controller::*, streaming::*, text_generation::*};
+use crate::{controller::*, text_generation::*, text_streaming::*};
 
 #[derive(Clone)]
-struct AppState {
-    pub streaming_controller: Arc<StreamingController>,
+pub struct AppState {
+    pub text_streaming_controller: Arc<TextStreamingController>,
+    pub text_blob_controller: Arc<TextPolledController>,
 }
 
 #[actix_web::main]
@@ -26,7 +29,8 @@ async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().unwrap();
 
     let app_data = AppState {
-        streaming_controller: StreamingController::create(),
+        text_streaming_controller: Arc::new(TextStreamingController::default()),
+        text_blob_controller: Arc::new(TextPolledController::default()),
     };
 
     let api_addr = std::env::var("API_ADDRESS").expect("API_ADDRESS must be set");
@@ -38,9 +42,10 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
             .service(hello_world)
             .service(version)
-            .service(mega)
-            .service(connect)
-            .service(prompt)
+            .service(new_streaming)
+            .service(prompt_streaming)
+            .service(prompt_blob)
+            .service(get_blob)
     })
     .bind((api_addr.clone(), 8080))?
     .run()
