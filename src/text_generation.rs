@@ -55,7 +55,7 @@ impl Default for TextGenerationArgs {
             cpu: false,
             tracing: false,
             use_flash_attn: false,
-            temperature: Some(0.9),
+            temperature: Some(0.95),
             top_p: Some(0.95),
             seed: rand::thread_rng().gen(),
             model_id: "lmz/candle-mistral".to_string(),
@@ -64,7 +64,7 @@ impl Default for TextGenerationArgs {
             weight_files: None,
             quantized: true,
             repeat_penalty: 1.1,
-            repeat_last_n: 64,
+            repeat_last_n: 128,
         }
         // TextGenerationArgs {
         //     cpu: false,
