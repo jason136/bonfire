@@ -1,18 +1,19 @@
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::sync::Arc;
-
-use actix_web::{middleware::Logger, web::Data, App, HttpServer};
-use text_polled::TextPolledController;
 
 mod controller;
 mod error;
 mod extractors;
-mod text_polled;
 mod text_generation;
+mod text_polled;
 mod text_streaming;
 mod token_stream;
 mod utils;
 
-use crate::{controller::*, text_generation::*, text_streaming::*};
+use crate::{controller::*, text_generation::*, text_polled::*, text_streaming::*};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -20,34 +21,38 @@ pub struct AppState {
     pub text_blob_controller: Arc<TextPolledController>,
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() {
+    dotenvy::dotenv().expect("Unable to read .env");
     TextGeneration::preload_models(TextGenerationArgs::default()).unwrap();
 
-    // TextGeneration::default().run("<s> Write a poem about dogs ", 500).unwrap();
-
-    dotenvy::dotenv().unwrap();
-
-    let app_data = AppState {
+    let app_state = AppState {
         text_streaming_controller: Arc::new(TextStreamingController::default()),
         text_blob_controller: Arc::new(TextPolledController::default()),
     };
 
     let api_addr = std::env::var("API_ADDRESS").expect("API_ADDRESS must be set");
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("debug"));
+    let api_port = if let Ok(port) = std::env::var("API_PORT") {
+        port
+    } else {
+        "8080".to_string()
+    };
 
-    HttpServer::new(move || {
-        App::new()
-            .app_data(Data::new(app_data.clone()))
-            .wrap(Logger::default())
-            .service(hello_world)
-            .service(version)
-            .service(new_streaming)
-            .service(prompt_streaming)
-            .service(prompt_blob)
-            .service(get_blob)
-    })
-    .bind((api_addr.clone(), 8080))?
-    .run()
-    .await
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
+
+    let app = Router::new()
+        .route("/hello/:id", get(hello_world))
+        .route("/version", get(version))
+        .route("/new_streaming", get(new_streaming))
+        .route("/prompt_streaming/:id", post(prompt_streaming))
+        .route("/prompt_polled", post(prompt_polled_text))
+        .route("/poll_text/:id", get(poll_text))
+        .with_state(app_state);
+
+    axum::Server::bind(&format!("{}:{}", api_addr, api_port).parse().unwrap())
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
 }

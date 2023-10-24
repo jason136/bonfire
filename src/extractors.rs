@@ -1,31 +1,37 @@
-// use actix_web::{FromRequest, HttpRequest, dev::Payload, error::ErrorUnauthorized};
-// use futures::future::{Ready, ready};
-// use uuid::Uuid;
+use axum::{
+    async_trait,
+    extract::FromRequestParts,
+    http::{request::Parts, StatusCode},
+};
+use uuid::Uuid;
 
-// pub struct StreamingClientId(pub Uuid);
+pub struct StreamingClientId(pub Uuid);
 
-// impl FromRequest for StreamingClientId {
-//     type Error = actix_web::Error;
-//     type Future = Ready<Result<Self, Self::Error>>;
+#[async_trait]
+impl<S> FromRequestParts<S> for StreamingClientId
+where
+    S: 'static + Send,
+{
+    type Rejection = (StatusCode, &'static str);
 
-//     fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
-//         let token = match req.headers().get("Authorization") {
-//             Some(header) => {
-//                 let string = header.to_str().unwrap();
-//                 let split = string.split(' ').collect::<Vec<&str>>();
-//                 if let Some(token) = split.get(1) {
-//                     token.to_string()
-//                 } else {
-//                     return ready(Err(ErrorUnauthorized("No Id Token")));
-//                 }
-//             }
-//             None => return ready(Err(ErrorUnauthorized("Invalid Id Header"))),
-//         };
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let token = match parts.headers.get("Authorization") {
+            Some(header) => {
+                let string = header.to_str().unwrap();
+                let split = string.split(' ').collect::<Vec<&str>>();
+                if let Some(token) = split.get(1) {
+                    token.to_string()
+                } else {
+                    return Err((StatusCode::UNAUTHORIZED, "No Auth Token"));
+                }
+            }
+            None => return Err((StatusCode::UNAUTHORIZED, "Invalid Auth Header")),
+        };
 
-//         if let Ok(id) = token.parse::<Uuid>() {
-//             ready(Ok(StreamingClientId(id)))
-//         } else {
-//             ready(Err(ErrorUnauthorized("Invalid Id Token")))
-//         }
-//     }
-// }
+        if let Ok(id) = token.parse::<Uuid>() {
+            Ok(StreamingClientId(id))
+        } else {
+            Err((StatusCode::UNAUTHORIZED, "Invalid Id Token"))
+        }
+    }
+}

@@ -1,16 +1,17 @@
-use candle_transformers::models::mistral::{Config, Model as Mistral};
-use candle_transformers::models::quantized_mistral::Model as QMistral;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
+use candle_transformers::models::mistral::{Config, Model as Mistral};
+use candle_transformers::models::quantized_mistral::Model as QMistral;
 
-use crossbeam::channel::Sender;
+use crate::token_stream::TokenOutputStream;
+use crate::utils::device;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tokenizers::Tokenizer;
-use crate::token_stream::TokenOutputStream;
-use crate::utils::device;
+use tokio::sync::mpsc::Sender;
+use tokio::task;
 
 enum Model {
     Mistral(Mistral),
@@ -55,7 +56,7 @@ impl Default for TextGenerationArgs {
             cpu: false,
             tracing: false,
             use_flash_attn: false,
-            temperature: Some(0.95),
+            temperature: Some(0.75),
             top_p: Some(0.95),
             seed: rand::thread_rng().gen(),
             model_id: "lmz/candle-mistral".to_string(),
@@ -245,13 +246,21 @@ impl TextGeneration {
                 break;
             }
             if let Some(t) = self.tokenizer.next_token(next_token)? {
-                sender.send(t).unwrap();
+                let sender_clone = sender.clone();
+                task::spawn(async move {
+                    use std::io::Write;
+                    print!("{}", &t);
+                    std::io::stdout().flush().unwrap();
+                    sender_clone.send(t).await.unwrap();
+                });
             }
         }
 
         let gen_time = start_gen.elapsed();
         if let Some(rest) = self.tokenizer.decode_rest().map_err(anyhow::Error::msg)? {
-            sender.send(rest).unwrap();
+            task::spawn(async move {
+                sender.send(rest).await.unwrap();
+            });
         }
 
         println!(

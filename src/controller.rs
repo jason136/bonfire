@@ -1,31 +1,29 @@
-use actix_web::{
-    get, post,
-    web::{Data, Json, Path},
-    HttpResponse,
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
 };
+use tokio::task;
 use uuid::Uuid;
 
 use crate::{
-    error::Response,
+    error::Result,
     text_generation::{TextGenerationArgs, TextGenerationPrompt},
+    text_polled::PolledMessageState,
     text_streaming::StreamingClient,
-    AppState, text_polled::PolledMessageState,
+    AppState,
 };
 
-#[get("/hello/{id}")]
-pub async fn hello_world(path: Path<i32>) -> Response {
-    let id: i32 = path.into_inner();
-
-    Ok(HttpResponse::Ok().body(format!("hello world: {id}")))
+pub async fn hello_world(Path(id): Path<i32>) -> Result<Response> {
+    Ok((StatusCode::OK, format!("hello world: {id}")).into_response())
 }
 
-#[get("/version")]
-pub async fn version() -> Response {
-    Ok(HttpResponse::Ok().body(env!("CARGO_PKG_VERSION")))
+pub async fn version() -> Result<Response> {
+    Ok((StatusCode::OK, env!("CARGO_PKG_VERSION")).into_response())
 }
 
-#[get("/new_streaming")]
-pub async fn new_streaming(state: Data<AppState>) -> Response {
+pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
     let client = StreamingClient::new(TextGenerationArgs::default()).await?;
     let user_id = Uuid::new_v4();
     state
@@ -35,38 +33,44 @@ pub async fn new_streaming(state: Data<AppState>) -> Response {
         .await
         .insert(user_id, client);
 
-    Ok(HttpResponse::Ok().body(user_id.to_string()))
+    Ok((StatusCode::OK, user_id.to_string()).into_response())
 }
 
-#[post("/prompt_streaming/{id}")]
 pub async fn prompt_streaming(
-    id: Path<String>,
-    state: Data<AppState>,
-    body: Json<TextGenerationPrompt>,
-) -> Response {
-    let user_id: Uuid = match id.into_inner().parse() {
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Json(body): Json<TextGenerationPrompt>,
+) -> Result<Response> {
+    let user_id: Uuid = match id.parse() {
         Ok(id) => id,
-        Err(_) => return Ok(HttpResponse::BadRequest().body("Invalid Id")),
+        Err(_) => return Ok((StatusCode::BAD_REQUEST, "Invalid Id").into_response()),
     };
 
     let state_cloned = state.clone();
-    if !state.text_streaming_controller.clients.lock().await.contains_key(&user_id) {
-        return Ok(HttpResponse::BadRequest().body("Client Not Found"));
+    if !state
+        .text_streaming_controller
+        .clients
+        .lock()
+        .await
+        .contains_key(&user_id)
+    {
+        return Ok((StatusCode::BAD_REQUEST, "Client Not Found").into_response());
     }
 
-    actix_web::rt::spawn(async move {
+    task::spawn(async move {
         let mut clients = state_cloned.text_streaming_controller.clients.lock().await;
-        if let Some(client) = clients
-            .get_mut(&user_id) {
-                client.prompt(&body.prompt, body.sample_len).await.unwrap();
-            }
+        if let Some(client) = clients.get_mut(&user_id) {
+            client.prompt(&body.prompt, body.sample_len).await.unwrap();
+        }
     });
 
-    Ok(HttpResponse::Ok().body("Prompting Begun..."))
+    Ok((StatusCode::OK, "Prompting Begun...").into_response())
 }
 
-#[post("/prompt_blob")]
-pub async fn prompt_blob(state: Data<AppState>, body: Json<TextGenerationPrompt>) -> Response {
+pub async fn prompt_polled_text(
+    State(state): State<AppState>,
+    body: Json<TextGenerationPrompt>,
+) -> Result<Response> {
     let id = Uuid::new_v4();
 
     state
@@ -75,19 +79,18 @@ pub async fn prompt_blob(state: Data<AppState>, body: Json<TextGenerationPrompt>
         .await
         .unwrap();
 
-    Ok(HttpResponse::Ok().body(id.to_string()))
+    Ok((StatusCode::OK, id.to_string()).into_response())
 }
 
-#[get("/get_blob/{id}")]
-pub async fn get_blob(id: Path<String>, state: Data<AppState>) -> Response {
-    match id.into_inner().parse() {
-        Ok(message_id) => {
-            match state.text_blob_controller.get_message(&message_id).await {
-                PolledMessageState::Available(message) => Ok(HttpResponse::Ok().body(message)),
-                PolledMessageState::Generating => Ok(HttpResponse::Ok().body("Generating")),
-                PolledMessageState::Missing => Ok(HttpResponse::BadRequest().body("Message not found")),
+pub async fn poll_text(Path(id): Path<String>, State(state): State<AppState>) -> Result<Response> {
+    match id.parse() {
+        Ok(message_id) => match state.text_blob_controller.get_message(&message_id).await {
+            PolledMessageState::Available(message) => Ok((StatusCode::OK, message).into_response()),
+            PolledMessageState::Generating => Ok((StatusCode::OK, "Generating").into_response()),
+            PolledMessageState::Missing => {
+                Ok((StatusCode::BAD_REQUEST, "Message not found").into_response())
             }
         },
-        Err(_) => Ok(HttpResponse::BadRequest().body("Invalid Id")),
+        Err(_) => Ok((StatusCode::BAD_REQUEST, "Invalid Id").into_response()),
     }
 }
