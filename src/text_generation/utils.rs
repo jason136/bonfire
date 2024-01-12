@@ -11,13 +11,17 @@ use super::{mistral7b::{Mistral7bArgs, Mistral7b}, mixtral8x7b::{Mixtral8x7bArgs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TextGenerationModel {
     Mistral7b,
+    Mistral7bQuantized,
     Mixtral8x7b,
+    Mixtral8x7bInstruct,
 }
 
 #[derive(Debug, Clone)]
 pub enum TextGenerationArgs {
     Mistral7b(Mistral7bArgs),
+    Mistral7bQuantized(Mistral7bArgs),
     Mixtral8x7b(Mixtral8x7bArgs),
+    Mixtral8x7bInstruct(Mixtral8x7bArgs),
 }
 
 #[derive(Clone)]
@@ -27,11 +31,19 @@ impl TextGenerator {
     pub fn new(args: &TextGenerationArgs) -> anyhow::Result<Self> {
         Ok(match args {
             TextGenerationArgs::Mistral7b(args) => {
-                let model = Mistral7b::new(args)?;
+                let model = Mistral7b::new(args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             },
+            TextGenerationArgs::Mistral7bQuantized(args) => {
+                let model = Mistral7b::new(args, true)?;
+                TextGenerator(Arc::new(Mutex::new(model)))
+            }
             TextGenerationArgs::Mixtral8x7b(args) => {
-                let model = Mixtral8x7b::new(args)?;
+                let model = Mixtral8x7b::new(args, false)?;
+                TextGenerator(Arc::new(Mutex::new(model)))
+            },
+            TextGenerationArgs::Mixtral8x7bInstruct(args) => {
+                let model = Mixtral8x7b::new(args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             },
         })
@@ -56,12 +68,22 @@ impl TextGenerator {
         Ok(match model {
             TextGenerationModel::Mistral7b => {
                 let args = Mistral7bArgs::default();
-                let model = Mistral7b::new(&args)?;
+                let model = Mistral7b::new(&args, false)?;
+                TextGenerator(Arc::new(Mutex::new(model)))
+            },
+            TextGenerationModel::Mistral7bQuantized => {
+                let args = Mistral7bArgs::default();
+                let model = Mistral7b::new(&args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             },
             TextGenerationModel::Mixtral8x7b => {
                 let args = Mixtral8x7bArgs::default();
-                let model = Mixtral8x7b::new(&args)?;
+                let model = Mixtral8x7b::new(&args, false)?;
+                TextGenerator(Arc::new(Mutex::new(model)))
+            },
+            TextGenerationModel::Mixtral8x7bInstruct => {
+                let args = Mixtral8x7bArgs::default();
+                let model = Mixtral8x7b::new(&args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             },
         })

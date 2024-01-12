@@ -25,7 +25,6 @@ pub struct Mistral7bArgs {
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub seed: u64,
-    pub quantized: bool,
     pub repeat_penalty: f32,
     pub repeat_last_n: usize,
 }
@@ -48,7 +47,6 @@ impl Default for Mistral7bArgs {
             temperature: Some(0.95),
             top_p: Some(0.95),
             seed: rand::thread_rng().gen(),
-            quantized: true,
             repeat_penalty: 1.1,
             repeat_last_n: 128,
         }
@@ -58,13 +56,13 @@ impl Default for Mistral7bArgs {
 impl Default for Mistral7b {
     fn default() -> Self {
         let args = Mistral7bArgs::default();
-        Self::new(&args).unwrap()
+        Self::new(&args, true).unwrap()
     }
 }
 
 impl Mistral7b {
     /// Creates a new instance of the LLM
-    pub fn new(args: &Mistral7bArgs) -> anyhow::Result<Self> {
+    pub fn new(args: &Mistral7bArgs, quantized: bool) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -81,7 +79,7 @@ impl Mistral7b {
 
         let start = std::time::Instant::now();
         let api = Api::new()?;
-        let model_id = if args.quantized {
+        let model_id = if quantized {
             "lmz/candle-mistral".to_string()
         } else {
             "mistralai/Mistral-7B-v0.1".to_string()
@@ -92,7 +90,7 @@ impl Mistral7b {
             "main".to_string(),
         ));
         let tokenizer_filename = repo.get("tokenizer.json")?;
-        let filenames = if args.quantized {
+        let filenames = if quantized {
             vec![repo.get("model-q4k.gguf")?]
         } else {
             hub_load_safetensors(&repo, "model.safetensors.index.json")?
@@ -103,7 +101,7 @@ impl Mistral7b {
 
         let start = std::time::Instant::now();
         let config = Config::config_7b_v0_1(args.use_flash_attn);
-        let (model, device) = if args.quantized {
+        let (model, device) = if quantized {
             let filename = &filenames[0];
             let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(filename)?;
             let model: QMistral = QMistral::new(&config, vb)?;
