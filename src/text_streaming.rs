@@ -24,9 +24,8 @@ pub struct StreamingClient {
     model: TextGenerator,
 }
 
-impl TextStreamingController {
-    /// Constructs new TextStreamingController
-    pub fn new () -> Self {
+impl Default for TextStreamingController {
+    fn default() -> Self {
         TextStreamingController {
             clients: Arc::new(Mutex::new(HashMap::new())),
         }

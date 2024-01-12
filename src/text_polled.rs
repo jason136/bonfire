@@ -33,17 +33,19 @@ pub enum PolledMessageState {
     Missing,
 }
 
-impl TextPolledController {
-    pub fn new() -> Self {
-        let blob_controller = TextPolledController {
+impl Default for TextPolledController {
+    fn default() -> Self {
+        let polled_controller = TextPolledController {
             messages: Arc::new(Mutex::new(HashMap::new())),
         };
 
-        TextPolledController::spawn_cleanup(blob_controller.messages.clone());
+        TextPolledController::spawn_cleanup(polled_controller.messages.clone());
 
-        blob_controller
+        polled_controller
     }
+}
 
+impl TextPolledController {
     fn spawn_cleanup(inner: TextPolledMessages) {
         task::spawn(async move {
             let mut interval = interval(Duration::from_secs(10));

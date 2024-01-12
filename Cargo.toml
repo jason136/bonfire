@@ -7,14 +7,14 @@ edition = "2021"
 
 [target.'cfg(apple)'.dependencies]
 accelerate-src = "0.3"
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3.0", features = ["accelerate"] }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3.3", features = ["accelerate"] }
 
 [target.'cfg(any(not(apple)))'.dependencies]
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3.0"}
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3.3"}
 
 [dependencies]
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.3.0" }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.3.0" }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.3.3" }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.3.3" }
 
 intel-mkl-src = { version = "0.8.1", features = ["mkl-static-lp64-iomp"] }
 tokenizers = "0.14"

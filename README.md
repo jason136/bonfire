@@ -6,7 +6,7 @@ Powered by Huggingface's Candle crate and Actix Web.
 
 ## Models
 #### Text Generation
-- Mistral 7B
+- Mistral 7b
 - Meta LLaMA family
 - GPT-1, GPT-2
 - other llms soon...

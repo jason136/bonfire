@@ -1,8 +1,7 @@
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
-use candle_transformers::models::mistral::{Config, Model as Mistral};
-use candle_transformers::models::quantized_mistral::Model as QMistral;
+use candle_transformers::models::mixtral::{Config, Model};
 
 use crate::text_generation::utils::{TextGeneratorInner, hub_load_safetensors, device};
 use crate::token_stream::TokenOutputStream;
@@ -12,13 +11,8 @@ use tokenizers::Tokenizer;
 use tokio::sync::mpsc::Sender;
 use tokio::task;
 
-enum Mistral7bModel {
-    Mistral(Mistral),
-    QMistral(QMistral),
-}
-
 #[derive(Debug, Clone)]
-pub struct Mistral7bArgs {
+pub struct Mixtral8x7bArgs {
     pub cpu: bool,
     pub tracing: bool,
     pub use_flash_attn: bool,
@@ -30,8 +24,8 @@ pub struct Mistral7bArgs {
     pub repeat_last_n: usize,
 }
 
-pub struct Mistral7b {
-    model: Mistral7bModel,
+pub struct Mixtral8x7b {
+    model: Model,
     device: Device,
     tokenizer: TokenOutputStream,
     logits_processor: LogitsProcessor,
@@ -39,9 +33,9 @@ pub struct Mistral7b {
     repeat_last_n: usize,
 }
 
-impl Default for Mistral7bArgs {
+impl Default for Mixtral8x7bArgs {
     fn default() -> Self {
-        Mistral7bArgs {
+        Mixtral8x7bArgs {
             cpu: false,
             tracing: false,
             use_flash_attn: false,
@@ -55,16 +49,16 @@ impl Default for Mistral7bArgs {
     }
 }
 
-impl Default for Mistral7b {
+impl Default for Mixtral8x7b {
     fn default() -> Self {
-        let args = Mistral7bArgs::default();
+        let args = Mixtral8x7bArgs::default();
         Self::new(&args).unwrap()
     }
 }
 
-impl Mistral7b {
+impl Mixtral8x7b {
     /// Creates a new instance of the LLM
-    pub fn new(args: &Mistral7bArgs) -> anyhow::Result<Self> {
+    pub fn new(args: &Mixtral8x7bArgs) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -81,44 +75,27 @@ impl Mistral7b {
 
         let start = std::time::Instant::now();
         let api = Api::new()?;
-        let model_id = if args.quantized {
-            "lmz/candle-mistral".to_string()
-        } else {
-            "mistralai/Mistral-7B-v0.1".to_string()
-        };
         let repo = api.repo(Repo::with_revision(
-            model_id,
+            "mistralai/Mixtral-8x7B-v0.1".to_string(),
             RepoType::Model,
             "main".to_string(),
         ));
         let tokenizer_filename = repo.get("tokenizer.json")?;
-        let filenames = if args.quantized {
-            vec![repo.get("model-q4k.gguf")?]
-        } else {
-            hub_load_safetensors(&repo, "model.safetensors.index.json")?
-        };
+        let filenames = hub_load_safetensors(&repo, "model.safetensors.index.json")?;
 
         println!("retrieved the files in {:?}", start.elapsed());
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(anyhow::Error::msg)?;
 
         let start = std::time::Instant::now();
-        let config = Config::config_7b_v0_1(args.use_flash_attn);
-        let (model, device) = if args.quantized {
-            let filename = &filenames[0];
-            let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(filename)?;
-            let model: QMistral = QMistral::new(&config, vb)?;
-            (Mistral7bModel::QMistral(model), Device::Cpu)
+        let config = Config::v0_1_8x7b(args.use_flash_attn);
+        let device = device(args.cpu)?;
+        let dtype = if device.is_cuda() {
+            DType::BF16
         } else {
-            let device = device(args.cpu)?;
-            let dtype = if device.is_cuda() {
-                DType::BF16
-            } else {
-                DType::F32
-            };
-            let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
-            let model = Mistral::new(&config, vb)?;
-            (Mistral7bModel::Mistral(model), device)
+            DType::F32
         };
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
+        let model = Model::new(&config, vb)?;
         println!("loaded the model in {:?}", start.elapsed());
 
         let logits_processor = LogitsProcessor::new(args.seed, args.temperature, args.top_p);
@@ -135,30 +112,22 @@ impl Mistral7b {
 
     /// Preloads the model files into the cache
     pub fn preload_model() -> anyhow::Result<()> {
-        let start: std::time::Instant = std::time::Instant::now();
+        let start = std::time::Instant::now();
         let api = Api::new()?;
-        let quantized = api.repo(Repo::with_revision(
-            "lmz/candle-mistral".to_string(),
-            RepoType::Model,
-            "main".to_string(),
-        ));
-        let regular = api.repo(Repo::with_revision(
-            "mistralai/Mistral-7B-v0.1".to_string(),
+        let repo = api.repo(Repo::with_revision(
+            "mistralai/Mixtral-8x7B-v0.1".to_string(),
             RepoType::Model,
             "main".to_string(),
         ));
 
-        quantized.get("tokenizer.json")?;
-        quantized.get("model-q4k.gguf")?;
-        
-        hub_load_safetensors(&regular, "model.safetensors.index.json")?;
+        repo.get("tokenizer.json")?;
+        hub_load_safetensors(&repo, "model.safetensors.index.json")?;
 
-        println!("retrieved mistral7b files in {:?}", start.elapsed());
-        Ok(())
-    }
+        println!("retrieved mixtral8x7b files in {:?}", start.elapsed());
+        Ok(())    }
 }
 
-impl TextGeneratorInner for Mistral7b {
+impl TextGeneratorInner for Mixtral8x7b {
     /// Prompts an already loaded LLM and streams output mpsc Sender
     fn run(
         &mut self,
@@ -187,10 +156,7 @@ impl TextGeneratorInner for Mistral7b {
             let start_pos = tokens.len().saturating_sub(context_size);
             let ctxt = &tokens[start_pos..];
             let input = Tensor::new(ctxt, &self.device)?.unsqueeze(0)?;
-            let logits = match &mut self.model {
-                Mistral7bModel::Mistral(m) => m.forward(&input, start_pos)?,
-                Mistral7bModel::QMistral(m) => m.forward(&input, start_pos)?,
-            };
+            let logits = self.model.forward(&input, start_pos)?;
             let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1.0 {
                 logits
@@ -212,9 +178,9 @@ impl TextGeneratorInner for Mistral7b {
             if let Some(t) = self.tokenizer.next_token(next_token)? {
                 let sender_clone = sender.clone();
                 task::spawn(async move {
-                    // use std::io::Write;
-                    // print!("{}", &t);
-                    // std::io::stdout().flush().unwrap();
+                    use std::io::Write;
+                    print!("{}", &t);
+                    std::io::stdout().flush().unwrap();
                     sender_clone.send(t).await.unwrap();
                 });
             }

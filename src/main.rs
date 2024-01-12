@@ -14,6 +14,7 @@ mod token_stream;
 mod text_generation {
     pub mod utils;
     pub mod mistral7b;
+    pub mod mixtral8x7b;
 }
 
 use crate::{controller::*, text_polled::*, text_streaming::*};
@@ -30,8 +31,8 @@ async fn main() {
     TextGenerator::preload_models().await;
 
     let app_state = AppState {
-        text_streaming_controller: Arc::new(TextStreamingController::new()),
-        text_polled_controller: Arc::new(TextPolledController::new()),
+        text_streaming_controller: Arc::new(TextStreamingController::default()),
+        text_polled_controller: Arc::new(TextPolledController::default()),
     };
 
     let api_addr = std::env::var("API_ADDRESS").expect("API_ADDRESS must be set");
