@@ -2,33 +2,36 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use text_generation::utils::TextGenerator;
 use std::sync::Arc;
 
 mod controller;
 mod error;
 mod extractors;
-mod text_generation;
 mod text_polled;
 mod text_streaming;
 mod token_stream;
-mod utils;
+mod text_generation {
+    pub mod utils;
+    pub mod mistral7b;
+}
 
-use crate::{controller::*, text_generation::*, text_polled::*, text_streaming::*};
+use crate::{controller::*, text_polled::*, text_streaming::*};
 
 #[derive(Clone)]
 pub struct AppState {
     pub text_streaming_controller: Arc<TextStreamingController>,
-    pub text_blob_controller: Arc<TextPolledController>,
+    pub text_polled_controller: Arc<TextPolledController>,
 }
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().expect("Unable to read .env");
-    TextGeneration::preload_models(TextGenerationArgs::default()).unwrap();
+    TextGenerator::preload_models().await;
 
     let app_state = AppState {
-        text_streaming_controller: Arc::new(TextStreamingController::default()),
-        text_blob_controller: Arc::new(TextPolledController::default()),
+        text_streaming_controller: Arc::new(TextStreamingController::new()),
+        text_polled_controller: Arc::new(TextPolledController::new()),
     };
 
     let api_addr = std::env::var("API_ADDRESS").expect("API_ADDRESS must be set");

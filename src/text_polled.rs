@@ -13,7 +13,7 @@ use tokio::{
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use uuid::Uuid;
 
-use crate::{error, text_generation::TextGeneration};
+use crate::{error, text_generation::utils::{TextPolledPrompt, TextGenerator}};
 
 type TextPolledMessages = Arc<Mutex<HashMap<Uuid, Option<PolledMessage>>>>;
 
@@ -33,9 +33,8 @@ pub enum PolledMessageState {
     Missing,
 }
 
-impl Default for TextPolledController {
-    /// constructs new TextPolledController and spawns cleanup task
-    fn default() -> Self {
+impl TextPolledController {
+    pub fn new() -> Self {
         let blob_controller = TextPolledController {
             messages: Arc::new(Mutex::new(HashMap::new())),
         };
@@ -44,9 +43,7 @@ impl Default for TextPolledController {
 
         blob_controller
     }
-}
 
-impl TextPolledController {
     fn spawn_cleanup(inner: TextPolledMessages) {
         task::spawn(async move {
             let mut interval = interval(Duration::from_secs(10));
@@ -68,18 +65,16 @@ impl TextPolledController {
         });
     }
 
-    pub async fn prompt(&self, id: Uuid, prompt: String, sample_len: u32) -> error::Result<()> {
-        let messages_clone = self.messages.clone();
-
-        let (tx, rx): (Sender<String>, Receiver<String>) = channel(sample_len as usize);
-
+    pub async fn prompt(&self, id: Uuid, prompt: TextPolledPrompt) -> error::Result<()> {
+        let (tx, rx): (Sender<String>, Receiver<String>) = channel(prompt.sample_len as usize);
         let handle = task::spawn_blocking(move || {
-            TextGeneration::default()
-                .run(&prompt, sample_len, tx)
+            TextGenerator::model_default(prompt.model).unwrap()
+                .run(&prompt.prompt, prompt.sample_len, tx)
                 .unwrap();
             println!("done generating");
         });
 
+        let messages_clone = self.messages.clone();
         task::spawn(async move {
             messages_clone.lock().await.insert(id, None);
             handle.await.unwrap();

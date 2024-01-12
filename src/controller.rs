@@ -9,10 +9,9 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
-    text_generation::{TextGenerationArgs, TextGenerationPrompt},
     text_polled::PolledMessageState,
     text_streaming::StreamingClient,
-    AppState,
+    AppState, text_generation::{utils::{TextGenerationArgs, TextPolledPrompt, TextStreamedPrompt}, mistral7b::Mistral7BArgs},
 };
 
 pub async fn hello_world(Path(id): Path<i32>) -> Result<Response> {
@@ -24,7 +23,7 @@ pub async fn version() -> Result<Response> {
 }
 
 pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
-    let client = StreamingClient::new(TextGenerationArgs::default()).await?;
+    let client = StreamingClient::new(TextGenerationArgs::Mistral7B(Mistral7BArgs::default())).await?;
     let user_id = Uuid::new_v4();
     state
         .text_streaming_controller
@@ -39,7 +38,7 @@ pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
 pub async fn prompt_streaming(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    Json(body): Json<TextGenerationPrompt>,
+    Json(prompt): Json<TextStreamedPrompt>,
 ) -> Result<Response> {
     let user_id: Uuid = match id.parse() {
         Ok(id) => id,
@@ -60,7 +59,7 @@ pub async fn prompt_streaming(
     task::spawn(async move {
         let mut clients = state_cloned.text_streaming_controller.clients.lock().await;
         if let Some(client) = clients.get_mut(&user_id) {
-            client.prompt(&body.prompt, body.sample_len).await.unwrap();
+            client.prompt(prompt).await.unwrap();
         }
     });
 
@@ -69,13 +68,13 @@ pub async fn prompt_streaming(
 
 pub async fn prompt_polled_text(
     State(state): State<AppState>,
-    body: Json<TextGenerationPrompt>,
+    Json(prompt): Json<TextPolledPrompt>,
 ) -> Result<Response> {
     let id = Uuid::new_v4();
 
     state
-        .text_blob_controller
-        .prompt(id, body.prompt.clone(), body.sample_len)
+        .text_polled_controller
+        .prompt(id, prompt)
         .await
         .unwrap();
 
@@ -84,7 +83,7 @@ pub async fn prompt_polled_text(
 
 pub async fn poll_text(Path(id): Path<String>, State(state): State<AppState>) -> Result<Response> {
     match id.parse() {
-        Ok(message_id) => match state.text_blob_controller.get_message(&message_id).await {
+        Ok(message_id) => match state.text_polled_controller.get_message(&message_id).await {
             PolledMessageState::Available(message) => Ok((StatusCode::OK, message).into_response()),
             PolledMessageState::Generating => Ok((StatusCode::OK, "Generating").into_response()),
             PolledMessageState::Missing => {

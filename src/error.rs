@@ -16,7 +16,7 @@ impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Error::General(e) => write!(f, "General Error: {}", e),
-            Error::Send(e) => write!(f, "Send Error: {}", e),
+            Error::Send(e) => write!(f, "Channel Send Error: {}", e),
             Error::StdIO(e) => write!(f, "StdIO Error: {}", e),
         }
     }
