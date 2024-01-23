@@ -5,20 +5,34 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[target.'cfg(apple)'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 accelerate-src = "0.3"
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3.3", features = ["accelerate"] }
+metal = { version = "0.27", features = ["mps"]}
 
-[target.'cfg(any(not(apple)))'.dependencies]
-candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3.3"}
+half = { version = "2.3", features = ["num-traits", "use-intrinsics", "rand_distr"] }
+
+candle-datasets = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
+candle-metal-kernels = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = ["accelerate", "metal"] }
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = ["accelerate", "metal"] }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = ["accelerate"] }
+
+[target.'cfg(any(not(target_os = "macos")))'.dependencies]
+cudarc = { version = "0.10", features = ["f16", "nccl"] }
+intel-mkl-src = { version = "0.8.1", features = ["mkl-static-lp64-iomp"] }
+half = { version = "2.3", features = ["num-traits", "use-intrinsics", "rand_distr"] }
+candle-datasets = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
+candle-flash-attn = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
+candle-onnx = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
+candle-kernels = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
+candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = [ "cuda", "cudnn", "mkl"]}
+candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = ["cuda", "mkl"] }
+candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = ["cuda", "flash-attn", "mkl"]}
 
 [dependencies]
-candle-nn = { git = "https://github.com/huggingface/candle.git", version = "0.3.3" }
-candle-transformers = { git = "https://github.com/huggingface/candle.git", version = "0.3.3" }
-
-intel-mkl-src = { version = "0.8.1", features = ["mkl-static-lp64-iomp"] }
 tokenizers = "0.14"
-hf-hub = "0.3"
+safetensors = "0.3"
+hf-hub = { version = "0.3", features=["tokio"] }
 
 axum = { version = "0.6", features = [ "json" ] }
 tokio = { version = "1", features = ["full"] }

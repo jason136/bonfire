@@ -14,7 +14,7 @@ use crate::text_generation::utils::{device, hub_load_safetensors, TextGeneratorI
 
 enum Mistral7bModel {
     Mistral(Mistral),
-    QMistral(QMistral),
+    Quantized(QMistral),
 }
 
 #[derive(Debug, Clone)]
@@ -101,13 +101,14 @@ impl Mistral7b {
 
         let start = std::time::Instant::now();
         let config = Config::config_7b_v0_1(args.use_flash_attn);
+        let device = device(args.cpu)?;
         let (model, device) = if quantized {
             let filename = &filenames[0];
-            let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(filename)?;
-            let model: QMistral = QMistral::new(&config, vb)?;
-            (Mistral7bModel::QMistral(model), Device::Cpu)
+            let vb =
+                candle_transformers::quantized_var_builder::VarBuilder::from_gguf(filename, &device)?;
+            let model = QMistral::new(&config, vb)?;
+            (Mistral7bModel::Quantized(model), device)
         } else {
-            let device = device(args.cpu)?;
             let dtype = if device.is_cuda() {
                 DType::BF16
             } else {
@@ -182,7 +183,7 @@ impl TextGeneratorInner for Mistral7b {
             let input = Tensor::new(ctxt, &self.device)?.unsqueeze(0)?;
             let logits = match &mut self.model {
                 Mistral7bModel::Mistral(m) => m.forward(&input, start_pos)?,
-                Mistral7bModel::QMistral(m) => m.forward(&input, start_pos)?,
+                Mistral7bModel::Quantized(m) => m.forward(&input, start_pos)?,
             };
             let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1.0 {
