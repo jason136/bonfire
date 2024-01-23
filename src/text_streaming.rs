@@ -6,7 +6,8 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use uuid::Uuid;
 
 use crate::{
-    error, text_generation::utils::{TextGenerationArgs, TextGenerator, TextStreamedPrompt},
+    error,
+    text_generation::utils::{TextGenerationArgs, TextGenerator, TextStreamedPrompt},
 };
 
 type TextStreamingClients = Arc<Mutex<HashMap<Uuid, StreamingClient>>>;

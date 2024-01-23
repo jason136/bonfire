@@ -2,19 +2,19 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use text_generation::utils::TextGenerator;
 use std::sync::Arc;
+use text_generation::utils::TextGenerator;
 
 mod controller;
 mod error;
 mod extractors;
 mod text_polled;
 mod text_streaming;
-mod token_stream;
 mod text_generation {
-    pub mod utils;
     pub mod mistral7b;
     pub mod mixtral8x7b;
+    pub mod token_stream;
+    pub mod utils;
 }
 
 use crate::{controller::*, text_polled::*, text_streaming::*};

@@ -2,14 +2,14 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::mixtral::{Config, Model};
-
-use crate::text_generation::utils::{TextGeneratorInner, hub_load_safetensors, device};
-use crate::token_stream::TokenOutputStream;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::Rng;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::Sender;
 use tokio::task;
+
+use crate::text_generation::token_stream::TokenOutputStream;
+use crate::text_generation::utils::{device, hub_load_safetensors, TextGeneratorInner};
 
 #[derive(Debug, Clone)]
 pub struct Mixtral8x7bArgs {
@@ -136,17 +136,13 @@ impl Mixtral8x7b {
         hub_load_safetensors(&instruct, "model.safetensors.index.json")?;
 
         println!("retrieved mixtral8x7b files in {:?}", start.elapsed());
-        Ok(())    }
+        Ok(())
+    }
 }
 
 impl TextGeneratorInner for Mixtral8x7b {
     /// Prompts an already loaded LLM and streams output mpsc Sender
-    fn run(
-        &mut self,
-        prompt: &str,
-        sample_len: u32,
-        sender: Sender<String>,
-    ) -> anyhow::Result<()> {
+    fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()> {
         self.tokenizer.clear();
 
         let mut tokens = self

@@ -3,14 +3,14 @@ use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::mistral::{Config, Model as Mistral};
 use candle_transformers::models::quantized_mistral::Model as QMistral;
-
-use crate::text_generation::utils::{TextGeneratorInner, hub_load_safetensors, device};
-use crate::token_stream::TokenOutputStream;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use rand::Rng;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::Sender;
 use tokio::task;
+
+use crate::text_generation::token_stream::TokenOutputStream;
+use crate::text_generation::utils::{device, hub_load_safetensors, TextGeneratorInner};
 
 enum Mistral7bModel {
     Mistral(Mistral),
@@ -148,7 +148,7 @@ impl Mistral7b {
 
         quantized.get("tokenizer.json")?;
         quantized.get("model-q4k.gguf")?;
-        
+
         hub_load_safetensors(&regular, "model.safetensors.index.json")?;
 
         println!("retrieved mistral7b files in {:?}", start.elapsed());
@@ -158,12 +158,7 @@ impl Mistral7b {
 
 impl TextGeneratorInner for Mistral7b {
     /// Prompts an already loaded LLM and streams output mpsc Sender
-    fn run(
-        &mut self,
-        prompt: &str,
-        sample_len: u32,
-        sender: Sender<String>,
-    ) -> anyhow::Result<()> {
+    fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()> {
         self.tokenizer.clear();
 
         let mut tokens = self

@@ -9,9 +9,13 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
+    text_generation::{
+        mistral7b::Mistral7bArgs,
+        utils::{TextGenerationArgs, TextPolledPrompt, TextStreamedPrompt},
+    },
     text_polled::PolledMessageState,
     text_streaming::StreamingClient,
-    AppState, text_generation::{utils::{TextGenerationArgs, TextPolledPrompt, TextStreamedPrompt}, mistral7b::Mistral7bArgs},
+    AppState,
 };
 
 pub async fn hello_world(Path(id): Path<i32>) -> Result<Response> {
@@ -23,7 +27,8 @@ pub async fn version() -> Result<Response> {
 }
 
 pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
-    let client = StreamingClient::new(TextGenerationArgs::Mistral7b(Mistral7bArgs::default())).await?;
+    let client =
+        StreamingClient::new(TextGenerationArgs::Mistral7b(Mistral7bArgs::default())).await?;
     let user_id = Uuid::new_v4();
     state
         .text_streaming_controller

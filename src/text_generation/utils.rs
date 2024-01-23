@@ -1,12 +1,18 @@
-use std::sync::Arc;
-
-use candle_core::{Device, utils::{cuda_is_available, metal_is_available}, Error, bail};
+use candle_core::{
+    bail,
+    utils::{cuda_is_available, metal_is_available},
+    Device, Error,
+};
 use futures::future::join_all;
 use parking_lot::Mutex;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tokio::{sync::mpsc::Sender, task};
 
-use super::{mistral7b::{Mistral7bArgs, Mistral7b}, mixtral8x7b::{Mixtral8x7bArgs, Mixtral8x7b}};
+use super::{
+    mistral7b::{Mistral7b, Mistral7bArgs},
+    mixtral8x7b::{Mixtral8x7b, Mixtral8x7bArgs},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TextGenerationModel {
@@ -33,7 +39,7 @@ impl TextGenerator {
             TextGenerationArgs::Mistral7b(args) => {
                 let model = Mistral7b::new(args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
             TextGenerationArgs::Mistral7bQuantized(args) => {
                 let model = Mistral7b::new(args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
@@ -41,11 +47,11 @@ impl TextGenerator {
             TextGenerationArgs::Mixtral8x7b(args) => {
                 let model = Mixtral8x7b::new(args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
             TextGenerationArgs::Mixtral8x7bInstruct(args) => {
                 let model = Mixtral8x7b::new(args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
         })
     }
 
@@ -57,10 +63,16 @@ impl TextGenerator {
             task::spawn(async {
                 Mixtral8x7b::preload_model().unwrap();
             }),
-        ]).await;
+        ])
+        .await;
     }
 
-    pub fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()> {
+    pub fn run(
+        &mut self,
+        prompt: &str,
+        sample_len: u32,
+        sender: Sender<String>,
+    ) -> anyhow::Result<()> {
         self.0.lock().run(prompt, sample_len, sender)
     }
 
@@ -70,22 +82,22 @@ impl TextGenerator {
                 let args = Mistral7bArgs::default();
                 let model = Mistral7b::new(&args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
             TextGenerationModel::Mistral7bQuantized => {
                 let args = Mistral7bArgs::default();
                 let model = Mistral7b::new(&args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
             TextGenerationModel::Mixtral8x7b => {
                 let args = Mixtral8x7bArgs::default();
                 let model = Mixtral8x7b::new(&args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
             TextGenerationModel::Mixtral8x7bInstruct => {
                 let args = Mixtral8x7bArgs::default();
                 let model = Mixtral8x7b::new(&args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
-            },
+            }
         })
     }
 }
@@ -135,8 +147,7 @@ pub fn hub_load_safetensors(
 ) -> candle_core::Result<Vec<std::path::PathBuf>> {
     let json_file = repo.get(json_file).map_err(Error::wrap)?;
     let json_file = std::fs::File::open(json_file)?;
-    let json: serde_json::Value =
-        serde_json::from_reader(&json_file).map_err(Error::wrap)?;
+    let json: serde_json::Value = serde_json::from_reader(&json_file).map_err(Error::wrap)?;
     let weight_map = match json.get("weight_map") {
         None => bail!("no weight map in {json_file:?}"),
         Some(serde_json::Value::Object(map)) => map,

@@ -1,10 +1,9 @@
+use futures::lock::Mutex;
 use std::{
     collections::HashMap,
     sync::Arc,
     time::{Duration, SystemTime},
 };
-
-use futures::lock::Mutex;
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task,
@@ -13,7 +12,10 @@ use tokio::{
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use uuid::Uuid;
 
-use crate::{error, text_generation::utils::{TextPolledPrompt, TextGenerator}};
+use crate::{
+    error,
+    text_generation::utils::{TextGenerator, TextPolledPrompt},
+};
 
 type TextPolledMessages = Arc<Mutex<HashMap<Uuid, Option<PolledMessage>>>>;
 
@@ -70,7 +72,8 @@ impl TextPolledController {
     pub async fn prompt(&self, id: Uuid, prompt: TextPolledPrompt) -> error::Result<()> {
         let (tx, rx): (Sender<String>, Receiver<String>) = channel(prompt.sample_len as usize);
         let handle = task::spawn_blocking(move || {
-            TextGenerator::model_default(prompt.model).unwrap()
+            TextGenerator::model_default(prompt.model)
+                .unwrap()
                 .run(&prompt.prompt, prompt.sample_len, tx)
                 .unwrap();
             println!("done generating");
