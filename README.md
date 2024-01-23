@@ -1,5 +1,3 @@
-[![Bonfire](https://github.com/jason136/bonfire/actions/workflows/bonfire.yml/badge.svg)](https://github.com/jason136/bonfire/actions/workflows/bonfire.yml)
-
 # Bonfire
 Run open-source generative AI models in a fast, reliable, and customizable rust API. \
 Powered by Huggingface's Candle crate and Tokio's Axum.
