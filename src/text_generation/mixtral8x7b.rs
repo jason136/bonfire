@@ -12,7 +12,7 @@ use crate::text_generation::token_stream::TokenOutputStream;
 use crate::text_generation::utils::{device, hub_load_safetensors, TextGeneratorInner};
 
 #[derive(Debug, Clone)]
-pub struct Mixtral8x7bArgs {
+pub struct MixtralArgs {
     pub cpu: bool,
     pub tracing: bool,
     pub use_flash_attn: bool,
@@ -24,7 +24,7 @@ pub struct Mixtral8x7bArgs {
     pub repeat_last_n: usize,
 }
 
-pub struct Mixtral8x7b {
+pub struct Mixtral {
     model: Model,
     device: Device,
     tokenizer: TokenOutputStream,
@@ -33,9 +33,9 @@ pub struct Mixtral8x7b {
     repeat_last_n: usize,
 }
 
-impl Default for Mixtral8x7bArgs {
+impl Default for MixtralArgs {
     fn default() -> Self {
-        Mixtral8x7bArgs {
+        MixtralArgs {
             cpu: false,
             tracing: false,
             use_flash_attn: false,
@@ -49,16 +49,16 @@ impl Default for Mixtral8x7bArgs {
     }
 }
 
-impl Default for Mixtral8x7b {
+impl Default for Mixtral {
     fn default() -> Self {
-        let args = Mixtral8x7bArgs::default();
+        let args = MixtralArgs::default();
         Self::new(&args, false).unwrap()
     }
 }
 
-impl Mixtral8x7b {
+impl Mixtral {
     /// Creates a new instance of the LLM
-    pub fn new(args: &Mixtral8x7bArgs, instruct: bool) -> anyhow::Result<Self> {
+    pub fn new(args: &MixtralArgs, instruct: bool) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -119,20 +119,19 @@ impl Mixtral8x7b {
     pub fn preload_model() -> anyhow::Result<()> {
         let start = std::time::Instant::now();
         let api = Api::new()?;
-        // let regular = api.repo(Repo::with_revision(
-        //     "mistralai/Mixtral-8x7B-v0.1".to_string(),
-        //     RepoType::Model,
-        //     "main".to_string(),
-        // ));
+        let regular = api.repo(Repo::with_revision(
+            "mistralai/Mixtral-8x7B-v0.1".to_string(),
+            RepoType::Model,
+            "main".to_string(),
+        ));
         let instruct = api.repo(Repo::with_revision(
             "mistralai/Mixtral-8x7B-Instruct-v0.1".to_string(),
             RepoType::Model,
             "main".to_string(),
         ));
 
-        // regular.get("tokenizer.json")?;
-        instruct.get("tokenizer.json")?;
-        // hub_load_safetensors(&regular, "model.safetensors.index.json")?;
+        regular.get("tokenizer.json")?;
+        hub_load_safetensors(&regular, "model.safetensors.index.json")?;
         hub_load_safetensors(&instruct, "model.safetensors.index.json")?;
 
         println!("retrieved mixtral8x7b files in {:?}", start.elapsed());
@@ -140,7 +139,7 @@ impl Mixtral8x7b {
     }
 }
 
-impl TextGeneratorInner for Mixtral8x7b {
+impl TextGeneratorInner for Mixtral {
     /// Prompts an already loaded LLM and streams output mpsc Sender
     fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()> {
         self.tokenizer.clear();

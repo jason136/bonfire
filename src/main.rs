@@ -11,6 +11,7 @@ mod extractors;
 mod text_polled;
 mod text_streaming;
 mod text_generation {
+    pub mod gguf_quantized;
     pub mod mistral7b;
     pub mod mixtral8x7b;
     pub mod token_stream;

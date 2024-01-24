@@ -10,24 +10,25 @@ use std::sync::Arc;
 use tokio::{sync::mpsc::Sender, task};
 
 use super::{
+    gguf_quantized::Quantized,
     mistral7b::{Mistral7b, Mistral7bArgs},
-    mixtral8x7b::{Mixtral8x7b, Mixtral8x7bArgs},
+    mixtral8x7b::{Mixtral, MixtralArgs},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TextGenerationModel {
     Mistral7b,
     Mistral7bQuantized,
-    Mixtral8x7b,
-    Mixtral8x7bInstruct,
+    Mixtral,
+    MixtralInstruct,
 }
 
 #[derive(Debug, Clone)]
 pub enum TextGenerationArgs {
     Mistral7b(Mistral7bArgs),
     Mistral7bQuantized(Mistral7bArgs),
-    Mixtral8x7b(Mixtral8x7bArgs),
-    Mixtral8x7bInstruct(Mixtral8x7bArgs),
+    Mixtral(MixtralArgs),
+    MixtralInstruct(MixtralArgs),
 }
 
 #[derive(Clone)]
@@ -44,12 +45,12 @@ impl TextGenerator {
                 let model = Mistral7b::new(args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             }
-            TextGenerationArgs::Mixtral8x7b(args) => {
-                let model = Mixtral8x7b::new(args, false)?;
+            TextGenerationArgs::Mixtral(args) => {
+                let model = Mixtral::new(args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             }
-            TextGenerationArgs::Mixtral8x7bInstruct(args) => {
-                let model = Mixtral8x7b::new(args, true)?;
+            TextGenerationArgs::MixtralInstruct(args) => {
+                let model = Mixtral::new(args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             }
         })
@@ -57,11 +58,14 @@ impl TextGenerator {
 
     pub async fn preload_models() {
         join_all(vec![
+            // task::spawn(async {
+            //     Mistral7b::preload_model().unwrap();
+            // }),
+            // task::spawn(async {
+            //     Mixtral::preload_model().unwrap();
+            // }),
             task::spawn(async {
-                Mistral7b::preload_model().unwrap();
-            }),
-            task::spawn(async {
-                Mixtral8x7b::preload_model().unwrap();
+                Quantized::preload_models().unwrap();
             }),
         ])
         .await;
@@ -88,14 +92,14 @@ impl TextGenerator {
                 let model = Mistral7b::new(&args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             }
-            TextGenerationModel::Mixtral8x7b => {
-                let args = Mixtral8x7bArgs::default();
-                let model = Mixtral8x7b::new(&args, false)?;
+            TextGenerationModel::Mixtral => {
+                let args = MixtralArgs::default();
+                let model = Mixtral::new(&args, false)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             }
-            TextGenerationModel::Mixtral8x7bInstruct => {
-                let args = Mixtral8x7bArgs::default();
-                let model = Mixtral8x7b::new(&args, true)?;
+            TextGenerationModel::MixtralInstruct => {
+                let args = MixtralArgs::default();
+                let model = Mixtral::new(&args, true)?;
                 TextGenerator(Arc::new(Mutex::new(model)))
             }
         })
@@ -164,4 +168,16 @@ pub fn hub_load_safetensors(
         .map(|v| repo.get(v).map_err(Error::wrap))
         .collect::<candle_core::Result<Vec<_>>>()?;
     Ok(safetensors_files)
+}
+
+pub fn format_size(size_in_bytes: usize) -> String {
+    if size_in_bytes < 1_000 {
+        format!("{}B", size_in_bytes)
+    } else if size_in_bytes < 1_000_000 {
+        format!("{:.2}KB", size_in_bytes as f64 / 1e3)
+    } else if size_in_bytes < 1_000_000_000 {
+        format!("{:.2}MB", size_in_bytes as f64 / 1e6)
+    } else {
+        format!("{:.2}GB", size_in_bytes as f64 / 1e9)
+    }
 }

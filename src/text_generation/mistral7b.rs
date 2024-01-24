@@ -104,8 +104,9 @@ impl Mistral7b {
         let device = device(args.cpu)?;
         let (model, device) = if quantized {
             let filename = &filenames[0];
-            let vb =
-                candle_transformers::quantized_var_builder::VarBuilder::from_gguf(filename, &device)?;
+            let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
+                filename, &device,
+            )?;
             let model = QMistral::new(&config, vb)?;
             (Mistral7bModel::Quantized(model), device)
         } else {
