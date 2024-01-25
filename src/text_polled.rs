@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::{
     error,
-    text_generation::utils::{TextGenerator, TextPolledPrompt},
+    text_generation::utils::{TextGenerator, TextPrompt},
 };
 
 type TextPolledMessages = Arc<Mutex<HashMap<Uuid, Option<PolledMessage>>>>;
@@ -69,10 +69,10 @@ impl TextPolledController {
         });
     }
 
-    pub async fn prompt(&self, id: Uuid, prompt: TextPolledPrompt) -> error::Result<()> {
+    pub async fn prompt(&self, id: Uuid, prompt: TextPrompt) -> error::Result<()> {
         let (tx, rx): (Sender<String>, Receiver<String>) = channel(prompt.sample_len as usize);
         let handle = task::spawn_blocking(move || {
-            TextGenerator::model_default(prompt.model)
+            TextGenerator::default(prompt.model)
                 .unwrap()
                 .run(&prompt.prompt, prompt.sample_len, tx)
                 .unwrap();

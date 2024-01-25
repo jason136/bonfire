@@ -3,7 +3,6 @@ use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::mixtral::{Config, Model};
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use rand::Rng;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::Sender;
 use tokio::task;
@@ -11,18 +10,7 @@ use tokio::task;
 use crate::text_generation::token_stream::TokenOutputStream;
 use crate::text_generation::utils::{device, hub_load_safetensors, TextGeneratorInner};
 
-#[derive(Debug, Clone)]
-pub struct MixtralArgs {
-    pub cpu: bool,
-    pub tracing: bool,
-    pub use_flash_attn: bool,
-    pub temperature: Option<f64>,
-    pub top_p: Option<f64>,
-    pub seed: u64,
-    pub quantized: bool,
-    pub repeat_penalty: f32,
-    pub repeat_last_n: usize,
-}
+use super::utils::TextGenerationArgs;
 
 pub struct Mixtral {
     model: Model,
@@ -33,32 +21,8 @@ pub struct Mixtral {
     repeat_last_n: usize,
 }
 
-impl Default for MixtralArgs {
-    fn default() -> Self {
-        MixtralArgs {
-            cpu: false,
-            tracing: false,
-            use_flash_attn: false,
-            temperature: Some(0.95),
-            top_p: Some(0.95),
-            seed: rand::thread_rng().gen(),
-            quantized: true,
-            repeat_penalty: 1.1,
-            repeat_last_n: 128,
-        }
-    }
-}
-
-impl Default for Mixtral {
-    fn default() -> Self {
-        let args = MixtralArgs::default();
-        Self::new(&args, false).unwrap()
-    }
-}
-
 impl Mixtral {
-    /// Creates a new instance of the LLM
-    pub fn new(args: &MixtralArgs, instruct: bool) -> anyhow::Result<Self> {
+    pub fn new(args: &TextGenerationArgs, instruct: bool) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -92,8 +56,8 @@ impl Mixtral {
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(anyhow::Error::msg)?;
 
         let start = std::time::Instant::now();
-        let config = Config::v0_1_8x7b(args.use_flash_attn);
-        let device = device(args.cpu)?;
+        let device = device(false)?;
+        let config = Config::v0_1_8x7b(device.is_cuda());
         let dtype = if device.is_cuda() {
             DType::BF16
         } else {
@@ -116,7 +80,7 @@ impl Mixtral {
     }
 
     /// Preloads the model files into the cache
-    pub fn preload_model() -> anyhow::Result<()> {
+    pub fn cache_model() -> anyhow::Result<()> {
         let start = std::time::Instant::now();
         let api = Api::new()?;
         let regular = api.repo(Repo::with_revision(

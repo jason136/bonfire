@@ -5,67 +5,116 @@ use candle_core::{
 };
 use futures::future::join_all;
 use parking_lot::Mutex;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::{sync::mpsc::Sender, task};
 
 use super::{
-    gguf_quantized::Quantized,
-    mistral7b::{Mistral7b, Mistral7bArgs},
-    mixtral8x7b::{Mixtral, MixtralArgs},
+    gguf_quantized::{Quantized, QuantizedModel},
+    mistral7b::{Mistral7b, Mistral7bModel},
+    mixtral::Mixtral,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TextGenerationModel {
     Mistral7b,
-    Mistral7bQuantized,
+    Mistral7bInstruct,
+    Mistral7bInstructV02,
     Mixtral,
     MixtralInstruct,
+    Mistral7bQuantized,
+    Mistral7bInstructQuantized,
+    Mistral7bInstructV02Quantized,
+    MixtralQuantized,
+    MixtralInstructQuantized,
+    Zephyr7bAlphaQuantized,
+    Zephyr7bBetaQuantized,
 }
 
 #[derive(Debug, Clone)]
-pub enum TextGenerationArgs {
-    Mistral7b(Mistral7bArgs),
-    Mistral7bQuantized(Mistral7bArgs),
-    Mixtral(MixtralArgs),
-    MixtralInstruct(MixtralArgs),
+pub struct TextGenerationArgs {
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub seed: u64,
+    pub repeat_penalty: f32,
+    pub repeat_last_n: usize,
+}
+
+impl Default for TextGenerationArgs {
+    fn default() -> Self {
+        TextGenerationArgs {
+            temperature: Some(0.95),
+            top_p: Some(0.95),
+            seed: rand::thread_rng().gen(),
+            repeat_penalty: 1.1,
+            repeat_last_n: 128,
+        }
+    }
+}
+
+pub trait TextGeneratorInner: Send + Sync {
+    fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()>;
 }
 
 #[derive(Clone)]
-pub struct TextGenerator(Arc<Mutex<dyn TextGeneratorInner>>);
+pub struct TextGenerator(pub Arc<Mutex<dyn TextGeneratorInner>>);
+fn wrap(model: impl TextGeneratorInner + 'static) -> anyhow::Result<TextGenerator> {
+    Ok(TextGenerator(Arc::new(Mutex::new(model))))
+}
 
 impl TextGenerator {
-    pub fn new(args: &TextGenerationArgs) -> anyhow::Result<Self> {
-        Ok(match args {
-            TextGenerationArgs::Mistral7b(args) => {
-                let model = Mistral7b::new(args, false)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
+    pub fn new(model: TextGenerationModel, args: &TextGenerationArgs) -> anyhow::Result<Self> {
+        match model {
+            TextGenerationModel::Mistral7b => {
+                wrap(Mistral7b::new(Mistral7bModel::Mistral7b, args)?)
             }
-            TextGenerationArgs::Mistral7bQuantized(args) => {
-                let model = Mistral7b::new(args, true)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
+            TextGenerationModel::Mistral7bInstruct => {
+                wrap(Mistral7b::new(Mistral7bModel::Mistral7bInstruct, args)?)
             }
-            TextGenerationArgs::Mixtral(args) => {
-                let model = Mixtral::new(args, false)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
+            TextGenerationModel::Mistral7bInstructV02 => {
+                wrap(Mistral7b::new(Mistral7bModel::Mistral7bInstructV02, args)?)
             }
-            TextGenerationArgs::MixtralInstruct(args) => {
-                let model = Mixtral::new(args, true)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
+            TextGenerationModel::Mixtral => wrap(Mixtral::new(args, false)?),
+            TextGenerationModel::MixtralInstruct => wrap(Mixtral::new(args, true)?),
+            TextGenerationModel::Mistral7bQuantized => {
+                wrap(Quantized::new(QuantizedModel::Mistral7b, args)?)
             }
-        })
+            TextGenerationModel::Mistral7bInstructQuantized => {
+                wrap(Quantized::new(QuantizedModel::Mistral7bInstruct, args)?)
+            }
+            TextGenerationModel::Mistral7bInstructV02Quantized => {
+                wrap(Quantized::new(QuantizedModel::Mistral7bInstructV02, args)?)
+            }
+            TextGenerationModel::MixtralQuantized => {
+                wrap(Quantized::new(QuantizedModel::Mixtral, args)?)
+            }
+            TextGenerationModel::MixtralInstructQuantized => {
+                wrap(Quantized::new(QuantizedModel::MixtralInstruct, args)?)
+            }
+            TextGenerationModel::Zephyr7bAlphaQuantized => {
+                wrap(Quantized::new(QuantizedModel::Zephyr7bAlpha, args)?)
+            }
+            TextGenerationModel::Zephyr7bBetaQuantized => {
+                wrap(Quantized::new(QuantizedModel::Zephyr7bBeta, args)?)
+            }
+        }
     }
 
-    pub async fn preload_models() {
+    pub fn default(model: TextGenerationModel) -> anyhow::Result<Self> {
+        Self::new(model, &TextGenerationArgs::default())
+    }
+
+    pub async fn cache_models() {
         join_all(vec![
             // task::spawn(async {
-            //     Mistral7b::preload_model().unwrap();
+            //     Mistral7b::cache_model().unwrap();
             // }),
             // task::spawn(async {
-            //     Mixtral::preload_model().unwrap();
+            //     Mixtral::cache_model().unwrap();
             // }),
             task::spawn(async {
-                Quantized::preload_models().unwrap();
+                Quantized::cache_model().unwrap();
             }),
         ])
         .await;
@@ -79,46 +128,11 @@ impl TextGenerator {
     ) -> anyhow::Result<()> {
         self.0.lock().run(prompt, sample_len, sender)
     }
-
-    pub fn model_default(model: TextGenerationModel) -> anyhow::Result<Self> {
-        Ok(match model {
-            TextGenerationModel::Mistral7b => {
-                let args = Mistral7bArgs::default();
-                let model = Mistral7b::new(&args, false)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
-            }
-            TextGenerationModel::Mistral7bQuantized => {
-                let args = Mistral7bArgs::default();
-                let model = Mistral7b::new(&args, true)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
-            }
-            TextGenerationModel::Mixtral => {
-                let args = MixtralArgs::default();
-                let model = Mixtral::new(&args, false)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
-            }
-            TextGenerationModel::MixtralInstruct => {
-                let args = MixtralArgs::default();
-                let model = Mixtral::new(&args, true)?;
-                TextGenerator(Arc::new(Mutex::new(model)))
-            }
-        })
-    }
-}
-
-pub trait TextGeneratorInner: Send + Sync {
-    fn run(&mut self, prompt: &str, sample_len: u32, sender: Sender<String>) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextPolledPrompt {
+pub struct TextPrompt {
     pub model: TextGenerationModel,
-    pub prompt: String,
-    pub sample_len: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextStreamedPrompt {
     pub prompt: String,
     pub sample_len: u32,
 }

@@ -9,10 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
-    text_generation::{
-        mistral7b::Mistral7bArgs,
-        utils::{TextGenerationArgs, TextPolledPrompt, TextStreamedPrompt},
-    },
+    text_generation::utils::{TextGenerationArgs, TextGenerationModel, TextPrompt},
     text_polled::PolledMessageState,
     text_streaming::StreamingClient,
     AppState,
@@ -27,8 +24,11 @@ pub async fn version() -> Result<Response> {
 }
 
 pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
-    let client =
-        StreamingClient::new(TextGenerationArgs::Mistral7b(Mistral7bArgs::default())).await?;
+    let client = StreamingClient::new(
+        TextGenerationModel::Mistral7b,
+        TextGenerationArgs::default(),
+    )
+    .await?;
     let user_id = Uuid::new_v4();
     state
         .text_streaming_controller
@@ -43,7 +43,7 @@ pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
 pub async fn prompt_streaming(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    Json(prompt): Json<TextStreamedPrompt>,
+    Json(prompt): Json<TextPrompt>,
 ) -> Result<Response> {
     let user_id: Uuid = match id.parse() {
         Ok(id) => id,
@@ -73,7 +73,7 @@ pub async fn prompt_streaming(
 
 pub async fn prompt_polled_text(
     State(state): State<AppState>,
-    Json(prompt): Json<TextPolledPrompt>,
+    Json(prompt): Json<TextPrompt>,
 ) -> Result<Response> {
     let id = Uuid::new_v4();
 

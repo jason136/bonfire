@@ -13,7 +13,7 @@ mod text_streaming;
 mod text_generation {
     pub mod gguf_quantized;
     pub mod mistral7b;
-    pub mod mixtral8x7b;
+    pub mod mixtral;
     pub mod token_stream;
     pub mod utils;
 }
@@ -29,7 +29,7 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().expect("Unable to read .env");
-    TextGenerator::preload_models().await;
+    TextGenerator::cache_models().await;
 
     let app_state = AppState {
         text_streaming_controller: Arc::new(TextStreamingController::default()),

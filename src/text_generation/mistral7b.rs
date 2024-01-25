@@ -1,10 +1,8 @@
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
-use candle_transformers::models::mistral::{Config, Model as Mistral};
-use candle_transformers::models::quantized_mistral::Model as QMistral;
+use candle_transformers::models::mistral::{Config, Model};
 use hf_hub::{api::sync::Api, Repo, RepoType};
-use rand::Rng;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::Sender;
 use tokio::task;
@@ -12,25 +10,16 @@ use tokio::task;
 use crate::text_generation::token_stream::TokenOutputStream;
 use crate::text_generation::utils::{device, hub_load_safetensors, TextGeneratorInner};
 
-enum Mistral7bModel {
-    Mistral(Mistral),
-    Quantized(QMistral),
-}
+use super::utils::TextGenerationArgs;
 
-#[derive(Debug, Clone)]
-pub struct Mistral7bArgs {
-    pub cpu: bool,
-    pub tracing: bool,
-    pub use_flash_attn: bool,
-    pub temperature: Option<f64>,
-    pub top_p: Option<f64>,
-    pub seed: u64,
-    pub repeat_penalty: f32,
-    pub repeat_last_n: usize,
+pub enum Mistral7bModel {
+    Mistral7b,
+    Mistral7bInstruct,
+    Mistral7bInstructV02,
 }
 
 pub struct Mistral7b {
-    model: Mistral7bModel,
+    model: Model,
     device: Device,
     tokenizer: TokenOutputStream,
     logits_processor: LogitsProcessor,
@@ -38,31 +27,16 @@ pub struct Mistral7b {
     repeat_last_n: usize,
 }
 
-impl Default for Mistral7bArgs {
-    fn default() -> Self {
-        Mistral7bArgs {
-            cpu: false,
-            tracing: false,
-            use_flash_attn: false,
-            temperature: Some(0.95),
-            top_p: Some(0.95),
-            seed: rand::thread_rng().gen(),
-            repeat_penalty: 1.1,
-            repeat_last_n: 128,
-        }
-    }
-}
-
 impl Default for Mistral7b {
     fn default() -> Self {
-        let args = Mistral7bArgs::default();
-        Self::new(&args, true).unwrap()
+        let args: TextGenerationArgs = TextGenerationArgs::default();
+        Self::new(Mistral7bModel::Mistral7b, &args).unwrap()
     }
 }
 
 impl Mistral7b {
     /// Creates a new instance of the LLM
-    pub fn new(args: &Mistral7bArgs, quantized: bool) -> anyhow::Result<Self> {
+    pub fn new(model: Mistral7bModel, args: &TextGenerationArgs) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -79,46 +53,38 @@ impl Mistral7b {
 
         let start = std::time::Instant::now();
         let api = Api::new()?;
-        let model_id = if quantized {
-            "lmz/candle-mistral".to_string()
-        } else {
-            "mistralai/Mistral-7B-v0.1".to_string()
+
+        let repo_id = match model {
+            Mistral7bModel::Mistral7b => "mistralai/Mistral-7B-v0.1".to_string(),
+            Mistral7bModel::Mistral7bInstruct => "mistralai/Mistral-7B-Instruct-v0.1".to_string(),
+            Mistral7bModel::Mistral7bInstructV02 => {
+                "mistralai/Mistral-7B-Instruct-v0.2".to_string()
+            }
         };
+
         let repo = api.repo(Repo::with_revision(
-            model_id,
+            repo_id,
             RepoType::Model,
             "main".to_string(),
         ));
         let tokenizer_filename = repo.get("tokenizer.json")?;
-        let filenames = if quantized {
-            vec![repo.get("model-q4k.gguf")?]
-        } else {
-            hub_load_safetensors(&repo, "model.safetensors.index.json")?
-        };
+        let filenames = hub_load_safetensors(&repo, "model.safetensors.index.json")?;
 
         println!("retrieved the files in {:?}", start.elapsed());
         let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(anyhow::Error::msg)?;
 
         let start = std::time::Instant::now();
-        let config = Config::config_7b_v0_1(args.use_flash_attn);
-        let device = device(args.cpu)?;
-        let (model, device) = if quantized {
-            let filename = &filenames[0];
-            let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
-                filename, &device,
-            )?;
-            let model = QMistral::new(&config, vb)?;
-            (Mistral7bModel::Quantized(model), device)
+        let device = device(false)?;
+        let config = Config::config_7b_v0_1(device.is_cuda());
+
+        let dtype = if device.is_cuda() {
+            DType::BF16
         } else {
-            let dtype = if device.is_cuda() {
-                DType::BF16
-            } else {
-                DType::F32
-            };
-            let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
-            let model = Mistral::new(&config, vb)?;
-            (Mistral7bModel::Mistral(model), device)
+            DType::F32
         };
+        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&filenames, dtype, &device)? };
+        let model = Model::new(&config, vb)?;
+
         println!("loaded the model in {:?}", start.elapsed());
 
         let logits_processor = LogitsProcessor::new(args.seed, args.temperature, args.top_p);
@@ -134,24 +100,22 @@ impl Mistral7b {
     }
 
     /// Preloads the model files into the cache
-    pub fn preload_model() -> anyhow::Result<()> {
+    pub fn cache_model() -> anyhow::Result<()> {
         let start: std::time::Instant = std::time::Instant::now();
         let api = Api::new()?;
-        let quantized = api.repo(Repo::with_revision(
-            "lmz/candle-mistral".to_string(),
-            RepoType::Model,
-            "main".to_string(),
-        ));
-        let regular = api.repo(Repo::with_revision(
-            "mistralai/Mistral-7B-v0.1".to_string(),
-            RepoType::Model,
-            "main".to_string(),
-        ));
-
-        quantized.get("tokenizer.json")?;
-        quantized.get("model-q4k.gguf")?;
-
-        hub_load_safetensors(&regular, "model.safetensors.index.json")?;
+        for repo_id in [
+            "mistralai/Mistral-7B-v0.1",
+            "mistralai/Mistral-7B-Instruct-v0.1",
+            "mistralai/Mistral-7B-Instruct-v0.2",
+        ] {
+            let repo = api.repo(Repo::with_revision(
+                repo_id.to_string(),
+                RepoType::Model,
+                "main".to_string(),
+            ));
+            repo.get("tokenizer.json")?;
+            hub_load_safetensors(&repo, "model.safetensors.index.json")?;
+        }
 
         println!("retrieved mistral7b files in {:?}", start.elapsed());
         Ok(())
@@ -182,10 +146,7 @@ impl TextGeneratorInner for Mistral7b {
             let start_pos = tokens.len().saturating_sub(context_size);
             let ctxt = &tokens[start_pos..];
             let input = Tensor::new(ctxt, &self.device)?.unsqueeze(0)?;
-            let logits = match &mut self.model {
-                Mistral7bModel::Mistral(m) => m.forward(&input, start_pos)?,
-                Mistral7bModel::Quantized(m) => m.forward(&input, start_pos)?,
-            };
+            let logits = self.model.forward(&input, start_pos)?;
             let logits = logits.squeeze(0)?.squeeze(0)?.to_dtype(DType::F32)?;
             let logits = if self.repeat_penalty == 1.0 {
                 logits

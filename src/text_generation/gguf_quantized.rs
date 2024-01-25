@@ -7,13 +7,14 @@ use candle_core::{Device, Tensor};
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::quantized_llama as model;
 use candle_transformers::models::quantized_llama::ModelWeights;
-use rand::Rng;
 use tokenizers::Tokenizer;
 use tokio::sync::mpsc::Sender;
 use tokio::task;
 
 use crate::text_generation::token_stream::TokenOutputStream;
 use crate::text_generation::utils::{device, format_size, TextGeneratorInner};
+
+use super::utils::TextGenerationArgs;
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum QuantizedModel {
@@ -39,41 +40,16 @@ impl QuantizedModel {
         }
     }
 
-    fn iterator() -> Iter<'static, QuantizedModel> {
-        static MODELS: [QuantizedModel; 7] = [
-            QuantizedModel::Mistral7b,
-            QuantizedModel::Mistral7bInstruct,
-            QuantizedModel::Mistral7bInstructV02,
-            QuantizedModel::Mixtral,
-            QuantizedModel::MixtralInstruct,
-            QuantizedModel::Zephyr7bAlpha,
-            QuantizedModel::Zephyr7bBeta,
-        ];
-        MODELS.iter()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct QuantizedArgs {
-    pub model: QuantizedModel,
-    pub temperature: Option<f64>,
-    pub top_p: Option<f64>,
-    pub seed: u64,
-    pub repeat_penalty: f32,
-    pub repeat_last_n: usize,
-}
-
-impl QuantizedArgs {
     fn tokenizer(&self) -> anyhow::Result<Tokenizer> {
         let api = hf_hub::api::sync::Api::new()?;
-        let repo = self.model.tokenizer_repo();
+        let repo = self.tokenizer_repo();
         let api = api.model(repo.to_string());
         let tokenizer_path = api.get("tokenizer.json")?;
         Tokenizer::from_file(tokenizer_path).map_err(anyhow::Error::msg)
     }
 
     fn model(&self) -> anyhow::Result<PathBuf> {
-        let (repo, filename) = match self.model {
+        let (repo, filename) = match self {
             QuantizedModel::Mistral7b => (
                 "TheBloke/Mistral-7B-v0.1-GGUF",
                 "mistral-7b-v0.1.Q4_K_S.gguf",
@@ -107,6 +83,19 @@ impl QuantizedArgs {
         let api = api.model(repo.to_string());
         Ok(api.get(filename)?)
     }
+
+    fn iterator() -> Iter<'static, QuantizedModel> {
+        static MODELS: [QuantizedModel; 7] = [
+            QuantizedModel::Mistral7b,
+            QuantizedModel::Mistral7bInstruct,
+            QuantizedModel::Mistral7bInstructV02,
+            QuantizedModel::Mixtral,
+            QuantizedModel::MixtralInstruct,
+            QuantizedModel::Zephyr7bAlpha,
+            QuantizedModel::Zephyr7bBeta,
+        ];
+        MODELS.iter()
+    }
 }
 
 pub struct Quantized {
@@ -118,29 +107,9 @@ pub struct Quantized {
     repeat_last_n: usize,
 }
 
-impl QuantizedArgs {
-    fn new(model: QuantizedModel) -> Self {
-        QuantizedArgs {
-            model,
-            temperature: Some(0.95),
-            top_p: Some(0.95),
-            seed: rand::thread_rng().gen(),
-            repeat_penalty: 1.1,
-            repeat_last_n: 128,
-        }
-    }
-}
-
-impl Default for Quantized {
-    fn default() -> Self {
-        let args = QuantizedArgs::new(QuantizedModel::Mixtral);
-        Self::new(&args).unwrap()
-    }
-}
-
 impl Quantized {
     /// Creates a new instance of the LLM
-    pub fn new(args: &QuantizedArgs) -> anyhow::Result<Self> {
+    pub fn new(model: QuantizedModel, args: &TextGenerationArgs) -> anyhow::Result<Self> {
         println!(
             "avx: {}, neon: {}, simd128: {}, f16c: {}",
             candle_core::utils::with_avx(),
@@ -156,11 +125,11 @@ impl Quantized {
         );
 
         let start = std::time::Instant::now();
-        let model_path = args.model()?;
+        let model_path = model.model()?;
         let mut file = File::open(&model_path)?;
         let device = device(false)?;
 
-        let tokenizer = args.tokenizer()?;
+        let tokenizer = model.tokenizer()?;
 
         let model_content =
             gguf_file::Content::read(&mut file).map_err(|e| e.with_path(model_path))?;
@@ -192,13 +161,12 @@ impl Quantized {
     }
 
     /// Preloads the model files into the cache
-    pub fn preload_models() -> anyhow::Result<()> {
+    pub fn cache_model() -> anyhow::Result<()> {
         let start = std::time::Instant::now();
 
         for model in QuantizedModel::iterator() {
-            let args = QuantizedArgs::new(*model);
-            args.model()?;
-            args.tokenizer()?;
+            model.model()?;
+            model.tokenizer()?;
         }
 
         println!("retrieved quantized files in {:?}", start.elapsed());

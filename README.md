@@ -4,12 +4,21 @@ Powered by Huggingface's Candle and Tokio's Axum.
 
 ## Models
 #### Text Generation
-- Mistral 7b, 
-- Mistrak 7b Quantized
-- Mixtral 8x7b (needs beefy gpu)
-- Mixtral 8x7b Instruct (needs beefy gpu)
-- Mixtral 8x7b Quantized
-- Mixtral 8x7b Instruct Quantized
+- Mistral7b, 
+- Mistral7b Instruct,
+- Mistral7b Instruct V02,
+- Mixtral (needs beefy gpu),
+- Mixtral Instruct (needs beefy gpu),
+
+- Mistral7b Quantized,
+- Mistral7b Instruct Quantized,
+- Mistral7b Instruct V02 Quantized,
+- Mixtral Quantized,
+- Mixtral Instruct Quantized,
+- Zephyr Alpha Quantized (fine tuned mixtral),
+- Zephyr Beta Quantized (fine tuned mixtral),
+
 - other llms coming soon...
+
 #### Image Generation
 - coming soon...

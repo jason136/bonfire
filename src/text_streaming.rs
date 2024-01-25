@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error,
-    text_generation::utils::{TextGenerationArgs, TextGenerator, TextStreamedPrompt},
+    text_generation::utils::{TextGenerationArgs, TextGenerationModel, TextGenerator, TextPrompt},
 };
 
 type TextStreamingClients = Arc<Mutex<HashMap<Uuid, StreamingClient>>>;
@@ -18,11 +18,11 @@ pub struct TextStreamingController {
 
 #[derive(Clone)]
 pub struct StreamingClient {
+    model: TextGenerationModel,
+    args: TextGenerationArgs,
     sender: Sender<String>,
     // sse_stream: Arc<Sse<ReceiverStream<Result<Event, Infallible>>>>,
     message_history: Arc<Mutex<Vec<String>>>,
-    model_args: TextGenerationArgs,
-    model: TextGenerator,
 }
 
 impl Default for TextStreamingController {
@@ -34,7 +34,7 @@ impl Default for TextStreamingController {
 }
 
 impl StreamingClient {
-    pub async fn new(model_args: TextGenerationArgs) -> error::Result<Self> {
+    pub async fn new(model: TextGenerationModel, args: TextGenerationArgs) -> error::Result<Self> {
         let (tx, rx): (Sender<String>, Receiver<String>) = channel(10);
 
         let stream = ReceiverStream::new(rx);
@@ -55,30 +55,23 @@ impl StreamingClient {
         tx.send("hello".to_string()).await?;
 
         let message_history = Arc::new(Mutex::new(Vec::new()));
-        let model = TextGenerator::new(&model_args)?;
 
         Ok(StreamingClient {
+            model,
+            args,
             sender: tx.clone(),
             // sse_stream,
             message_history,
-            model_args,
-            model,
         })
     }
 
-    /// Refresh model, needs to be run after every prompt
-    pub async fn refresh_model(&mut self) -> error::Result<()> {
-        self.model = TextGenerator::new(&self.model_args)?;
-        Ok(())
-    }
-
     /// Prompt the underlying model with message history, piping the results to the client
-    pub async fn prompt(&mut self, prompt: TextStreamedPrompt) -> error::Result<()> {
+    pub async fn prompt(&mut self, prompt: TextPrompt) -> error::Result<()> {
         let full_prompt = self.message_history.lock().await.concat() + " " + &prompt.prompt;
+        let mut model = TextGenerator::new(self.model.clone(), &self.args)?;
 
-        self.model
-            .run(&full_prompt, prompt.sample_len, self.sender.clone())?;
+        model.run(&full_prompt, prompt.sample_len, self.sender.clone())?;
 
-        self.refresh_model().await
+        Ok(())
     }
 }
