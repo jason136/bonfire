@@ -30,6 +30,7 @@ pub enum TextGenerationModel {
     MixtralInstructQuantized,
     Zephyr7bAlphaQuantized,
     Zephyr7bBetaQuantized,
+    DolphinMixtralQuantized,
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +45,7 @@ pub struct TextGenerationArgs {
 impl Default for TextGenerationArgs {
     fn default() -> Self {
         TextGenerationArgs {
-            temperature: Some(0.95),
+            temperature: Some(0.9),
             top_p: Some(0.95),
             seed: rand::thread_rng().gen(),
             repeat_penalty: 1.1,
@@ -97,7 +98,8 @@ impl TextGenerator {
             }
             TextGenerationModel::Zephyr7bBetaQuantized => {
                 wrap(Quantized::new(QuantizedModel::Zephyr7bBeta, args)?)
-            }
+            },
+            TextGenerationModel::DolphinMixtralQuantized => wrap(Quantized::new(QuantizedModel::DolphinMixtral, args)?),
         }
     }
 
@@ -107,12 +109,12 @@ impl TextGenerator {
 
     pub async fn cache_models() {
         join_all(vec![
-            // task::spawn(async {
-            //     Mistral7b::cache_model().unwrap();
-            // }),
-            // task::spawn(async {
-            //     Mixtral::cache_model().unwrap();
-            // }),
+            task::spawn(async {
+                Mistral7b::cache_model().unwrap();
+            }),
+            task::spawn(async {
+                Mixtral::cache_model().unwrap();
+            }),
             task::spawn(async {
                 Quantized::cache_model().unwrap();
             }),

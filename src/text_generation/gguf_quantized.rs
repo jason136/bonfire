@@ -25,6 +25,7 @@ pub enum QuantizedModel {
     MixtralInstruct,
     Zephyr7bAlpha,
     Zephyr7bBeta,
+    DolphinMixtral,
 }
 
 impl QuantizedModel {
@@ -36,7 +37,8 @@ impl QuantizedModel {
             | QuantizedModel::Mistral7bInstruct
             | QuantizedModel::Mistral7bInstructV02
             | QuantizedModel::Zephyr7bAlpha
-            | QuantizedModel::Zephyr7bBeta => "mistralai/Mistral-7B-v0.1",
+            | QuantizedModel::Zephyr7bBeta
+            | QuantizedModel::DolphinMixtral => "mistralai/Mistral-7B-v0.1",
         }
     }
 
@@ -76,7 +78,11 @@ impl QuantizedModel {
             ),
             QuantizedModel::Zephyr7bBeta => {
                 ("TheBloke/zephyr-7B-beta-GGUF", "zephyr-7b-beta.Q4_K_M.gguf")
-            }
+            },
+            QuantizedModel::DolphinMixtral => (
+                "TheBloke/dolphin-2.5-mixtral-8x7b-GGUF",
+                "dolphin-2.5-mixtral-8x7b.Q4_K_M.gguf",
+            ),
         };
 
         let api = hf_hub::api::sync::Api::new()?;
@@ -85,7 +91,7 @@ impl QuantizedModel {
     }
 
     fn iterator() -> Iter<'static, QuantizedModel> {
-        static MODELS: [QuantizedModel; 7] = [
+        static MODELS: [QuantizedModel; 8] = [
             QuantizedModel::Mistral7b,
             QuantizedModel::Mistral7bInstruct,
             QuantizedModel::Mistral7bInstructV02,
@@ -93,6 +99,7 @@ impl QuantizedModel {
             QuantizedModel::MixtralInstruct,
             QuantizedModel::Zephyr7bAlpha,
             QuantizedModel::Zephyr7bBeta,
+            QuantizedModel::DolphinMixtral,
         ];
         MODELS.iter()
     }
@@ -127,9 +134,9 @@ impl Quantized {
         let start = std::time::Instant::now();
         let model_path = model.model()?;
         let mut file = File::open(&model_path)?;
-        let device = device(false)?;
+        let device = device(true)?;
 
-        let tokenizer = model.tokenizer()?;
+        let tokenizer: Tokenizer = model.tokenizer()?;
 
         let model_content =
             gguf_file::Content::read(&mut file).map_err(|e| e.with_path(model_path))?;
@@ -164,10 +171,14 @@ impl Quantized {
     pub fn cache_model() -> anyhow::Result<()> {
         let start = std::time::Instant::now();
 
-        for model in QuantizedModel::iterator() {
-            model.model()?;
-            model.tokenizer()?;
-        }
+        // for model in QuantizedModel::iterator() {
+        //     model.model()?;
+        //     model.tokenizer()?;
+        // }
+
+        let model = QuantizedModel::DolphinMixtral;
+        model.model()?;
+        model.tokenizer()?;
 
         println!("retrieved quantized files in {:?}", start.elapsed());
         Ok(())

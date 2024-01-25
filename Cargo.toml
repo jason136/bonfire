@@ -8,9 +8,6 @@ edition = "2021"
 [target.'cfg(target_os = "macos")'.dependencies]
 accelerate-src = "0.3"
 metal = { version = "0.27", features = ["mps"]}
-
-half = { version = "2.3", features = ["num-traits", "use-intrinsics", "rand_distr"] }
-
 candle-datasets = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
 candle-metal-kernels = { git = "https://github.com/huggingface/candle.git", version = "0.3" }
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.3", features = ["accelerate", "metal"] }

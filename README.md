@@ -17,6 +17,7 @@ Powered by Huggingface's Candle and Tokio's Axum.
 - Mixtral Instruct Quantized,
 - Zephyr Alpha Quantized (fine tuned mixtral),
 - Zephyr Beta Quantized (fine tuned mixtral),
+- Dolphin Mixtral Quantized (fine tuned mixtral),
 
 - other llms coming soon...
 
