@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error,
-    text_generation::utils::{TextGenerationArgs, TextGenerationModel, TextGenerator, TextPrompt},
+    text_generation::utils::{TextGenerationArgs, TextGenerationModel, TextGenerator, TextStreamPrompt, TextPrompt},
 };
 
 type TextStreamingClients = Arc<Mutex<HashMap<Uuid, StreamingClient>>>;
@@ -66,7 +66,7 @@ impl StreamingClient {
     }
 
     /// Prompt the underlying model with message history, piping the results to the client
-    pub async fn prompt(&mut self, prompt: TextPrompt) -> error::Result<()> {
+    pub async fn prompt(&mut self, prompt: TextStreamPrompt) -> error::Result<()> {
         let full_prompt = self.message_history.lock().await.concat() + " " + &prompt.prompt;
         let mut model = TextGenerator::new(self.model.clone(), &self.args)?;
 

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::{
     error::Result,
-    text_generation::utils::{TextGenerationArgs, TextGenerationModel, TextPrompt},
+    text_generation::utils::{TextGenerationArgs, TextGenerationModel, TextStreamInit, TextStreamPrompt, TextPrompt},
     text_polled::PolledMessageState,
     text_streaming::StreamingClient,
     AppState,
@@ -23,9 +23,9 @@ pub async fn version() -> Result<Response> {
     Ok((StatusCode::OK, env!("CARGO_PKG_VERSION")).into_response())
 }
 
-pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
+pub async fn new_streaming(State(state): State<AppState>, Json(prompt): Json<TextStreamInit>) -> Result<Response> {
     let client = StreamingClient::new(
-        TextGenerationModel::Mistral7b,
+        prompt.model,
         TextGenerationArgs::default(),
     )
     .await?;
@@ -43,7 +43,7 @@ pub async fn new_streaming(State(state): State<AppState>) -> Result<Response> {
 pub async fn prompt_streaming(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    Json(prompt): Json<TextPrompt>,
+    Json(prompt): Json<TextStreamPrompt>,
 ) -> Result<Response> {
     let user_id: Uuid = match id.parse() {
         Ok(id) => id,

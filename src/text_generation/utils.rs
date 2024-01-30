@@ -139,6 +139,17 @@ pub struct TextPrompt {
     pub sample_len: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextStreamInit {
+    pub model: TextGenerationModel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextStreamPrompt {
+    pub prompt: String,
+    pub sample_len: u32,
+}
+
 pub fn device(cpu: bool) -> candle_core::Result<Device> {
     if cpu {
         Ok(Device::Cpu)
